@@ -272,6 +272,9 @@ class YouTubeFinderTkinter:
         ttk.Button(button_frame, text="Save Schedule...", command=self.save_schedule).grid(row=0, column=1, padx=3)
         self.stop_button = ttk.Button(button_frame, text="Stop Search", command=self.stop_search_func, state='disabled')
         self.stop_button.grid(row=0, column=2, padx=(3, 0))
+
+        self.keywords_text.bind('<KeyRelease>', self.update_quota_estimate)
+        self.pages_var.trace_add('write', self.update_quota_estimate)
         
     def create_right_panel(self, parent):
         # Status section
@@ -524,43 +527,41 @@ class YouTubeFinderTkinter:
         else:
             self.open_video_button.config(state='disabled')
             self.open_channel_button.config(state='disabled')
-    
-    def update_quota_estimate(self):
-        keywords_text = self.keywords_text.get("1.0", tk.END).strip()
+
+    def update_quota_estimate(self, *args):
+        """Real-time quota estimate based on live keywords & pages."""
+        keywords = self.keywords_text.get("1.0", tk.END).strip()
         try:
-            pages_per_keyword = int(self.pages_var.get() or '2')
+            pages = int(self.pages_var.get() or '2')
         except ValueError:
-            pages_per_keyword = 2
-        
-        estimated_quota = self.estimate_quota(keywords_text, pages_per_keyword)
-        self.quota_est_label.config(text=f"Estimated quota for this run: {estimated_quota}")
+            pages = 2
+
+        est = self.estimate_quota(keywords, pages)
+        self.quota_est_label.config(text=f"Estimated quota: {est}")
     
-    def estimate_quota(self, keywords, pages_per_keyword):
-        try:
-            keyword_count = len([k.strip() for k in keywords.split('\n') if k.strip()])
-            if keyword_count == 0:
-                return 0
-            
-            # search.list: 100 units per call
-            search_calls = keyword_count * int(pages_per_keyword)
-            search_quota = search_calls * 100
-            
-            # Estimate results (conservative: 30 results per page)
-            estimated_results = search_calls * 30
-            
-            # videos.list: 1 unit per call (batches of 50)
-            video_calls = (estimated_results + 49) // 50
-            video_quota = video_calls * 1
-            
-            # channels.list: 1 unit per call (batches of 50)  
-            channel_calls = video_calls
-            channel_quota = channel_calls * 1
-            
-            total_quota = search_quota + video_quota + channel_quota
-            return total_quota
-            
-        except Exception:
+    def estimate_quota(self, keywords_raw, pages_per_keyword):
+        """Return exact YouTube-API quota cost for the live keywords."""
+        keyword_list = [k.strip() for k in keywords_raw.split('\n') if k.strip()]
+        if not keyword_list:
             return 0
+
+        # YouTube-API cost constants
+        SEARCH_COST   = 100      # search.list per call
+        VIDEO_COST    = 1        # videos.list per 50 videos
+        CHANNEL_COST  = 1        # channels.list per 50 channels
+
+        search_calls  = len(keyword_list) * pages_per_keyword
+        search_quota  = search_calls * SEARCH_COST
+
+        # Conservative: 50 results per page, 80 % success
+        videos_found  = search_calls * 50 * 0.8
+        video_calls   = max(1, int(videos_found / 50))
+        video_quota   = video_calls * VIDEO_COST
+
+        # One channel call per 50 videos
+        channel_quota = video_calls * CHANNEL_COST
+
+        return search_quota + video_quota + channel_quota
     
     def start_search(self):
         # Validate inputs
