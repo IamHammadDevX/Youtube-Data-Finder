@@ -56,12 +56,12 @@ class ConfigManager:
     def validate_settings(self, settings):
         """Validate settings and return error messages"""
         errors = []
-        
+
         # Validate keywords
         keywords = settings.get('keywords', '').strip()
         if not keywords:
             errors.append("Keywords cannot be empty")
-        
+
         # Validate numeric fields
         numeric_fields = {
             'pages': 'Pages per keyword',
@@ -73,7 +73,7 @@ class ConfigManager:
             'subs_min': 'Subscribers min',
             'subs_max': 'Subscribers max'
         }
-        
+
         for field, display_name in numeric_fields.items():
             value = settings.get(field, '').strip()
             if value:  # Only validate if not empty
@@ -83,15 +83,15 @@ class ConfigManager:
                         errors.append(f"{display_name} must be non-negative")
                 except ValueError:
                     errors.append(f"{display_name} must be a valid number")
-        
+
         # Validate duration range
         if settings.get('duration') == 'Custom':
             duration_min = settings.get('duration_min', '').strip()
             duration_max = settings.get('duration_max', '').strip()
-            
+
             if not duration_min and not duration_max:
                 errors.append("Custom duration requires at least min or max value")
-            
+
             if duration_min and duration_max:
                 try:
                     min_val = float(duration_min)
@@ -100,7 +100,7 @@ class ConfigManager:
                         errors.append("Duration min must be less than duration max")
                 except ValueError:
                     pass  # Already validated above
-        
+
         # Validate view range
         views_min = settings.get('views_min', '').strip()
         views_max = settings.get('views_max', '').strip()
@@ -112,7 +112,7 @@ class ConfigManager:
                     errors.append("Views min must be less than views max")
             except ValueError:
                 pass  # Already validated above
-        
+
         # Validate subscriber range
         subs_min = settings.get('subs_min', '').strip()
         subs_max = settings.get('subs_max', '').strip()
@@ -124,7 +124,39 @@ class ConfigManager:
                     errors.append("Subscribers min must be less than subscribers max")
             except ValueError:
                 pass  # Already validated above
-        
+
+        # Validate timeframe views
+        days_back = settings.get('days_back', '').strip()
+        if days_back:
+            try:
+                if int(days_back) <= 0:
+                    errors.append("Days back must be a positive integer")
+            except ValueError:
+                errors.append("Days back must be an integer")
+
+        min_daily = settings.get('min_daily_views', '').strip()
+        if min_daily:
+            try:
+                if float(min_daily) < 0:
+                    errors.append("Min daily views must be non-negative")
+            except ValueError:
+                errors.append("Min daily views must be a number")
+                # Validate history retention
+        keep_days = settings.get('history_keep_days', '').strip()
+        if keep_days:
+            try:
+                if int(keep_days) < 0:
+                    errors.append("History keep days must be zero or positive")
+            except ValueError:
+                errors.append("History keep days must be an integer")
+                # Validate schedule time
+        st = settings.get('schedule_time', '').strip()
+        if st:
+            try:
+                datetime.strptime(st, '%H:%M')
+            except ValueError:
+                errors.append("Schedule time must be in HH:MM 24-hour format")
+
         return errors
     
     def export_schedule_config(self, settings, schedule_time='09:00'):

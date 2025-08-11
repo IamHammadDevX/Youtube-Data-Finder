@@ -1,0 +1,83 @@
+# ─────────────────────────────
+#  YouTubeFinder  –  .gitignore
+# ─────────────────────────────
+
+# ── Python / build ──
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.egg
+*.egg-info/
+*.whl
+build/
+dist/
+*.spec
+pip-wheel-metadata/
+.Pipfile.lock
+poetry.lock
+
+# ── Virtual environments ──
+venv/
+env/
+.venv/
+.ENV/
+env.bak/
+venv.bak/
+
+# ── IDE / Editor ──
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+*.bak
+*.tmp
+
+# ── Replit / Cloud / Docker ──
+.replit
+.replit.nix
+.local/
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# ── Secrets & ENV ──
+.env
+.env.*
+*.key
+*.pem
+secrets/
+config/secrets.json
+
+# ── Logs / Data (auto-generated or large) ──
+logs/
+*.log
+*.csv
+data/
+export/
+*.tmp
+*.cache
+*.sqlite
+*.db
+
+# ── YouTube API key (never commit) ──
+# Keep one line for the env file if you use it
+.env
+
+# ── Coverage / Testing ──
+.coverage
+.tox/
+.pytest_cache/
+htmlcov/
+.coverage.*
+.nox/
+
+# ── Misc OS / Git ──
+.git/
+.gitattributes
+.gitmodules
+*.orig
+*.rej

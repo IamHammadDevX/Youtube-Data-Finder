@@ -6,7 +6,9 @@ from datetime import datetime
 import pandas as pd
 from youtube_api import YouTubeSearcher
 from csv_handler import CSVHandler
-from utils import parse_duration_minutes, validate_api_key
+from utils import parse_duration_minutes, validate_api_key, passes_timeframe_view_filter, quota_warning_threshold
+from datetime import datetime, timedelta        # NEW: timedelta for auto-clear
+
 
 class HeadlessYouTubeSearcher:
     def __init__(self, settings_file):
@@ -42,32 +44,42 @@ class HeadlessYouTubeSearcher:
         """Execute the headless search"""
         start_time = datetime.now()
         print(f"Starting YouTube search at {start_time.strftime('%Y-%m-%d %H:%M:%S')}")
-        
+
         try:
             # Parse keywords
             keywords_text = self.settings.get('keywords', '').strip()
             if not keywords_text:
                 print('ERROR: No keywords specified in settings!')
                 return False
-            
+
             keywords = [k.strip() for k in keywords_text.split('\n') if k.strip()]
             print(f"Searching for {len(keywords)} keywords: {', '.join(keywords[:3])}{'...' if len(keywords) > 3 else ''}")
-            
+
             # Get search parameters
             pages_per_keyword = int(self.settings.get('pages', 2))
             api_cap = int(self.settings.get('api_cap', 9500))
-            
-            # Clear history if fresh search
+
+            # NEW: timeframe-view filter parameters
+            days_back = self.settings.get('days_back', '').strip()
+            min_daily_views = self.settings.get('min_daily_views', '').strip()
+
+            # NEW: history retention auto-clear
+            keep_days_str = self.settings.get('history_keep_days', '').strip()
+            if keep_days_str.isdigit():
+                keep_days = int(keep_days_str)
+                self.csv_handler.clear_history_older_than(keep_days)
+
+            # Clear history if fresh search (manual override)
             if self.settings.get('fresh_search', False):
                 print("Fresh search enabled - clearing history")
                 self.csv_handler.clear_history()
-            
+
             # Initialize results
             all_results = []
-            
+
             for i, keyword in enumerate(keywords, 1):
                 print(f"\nProcessing keyword {i}/{len(keywords)}: '{keyword}'")
-                
+
                 try:
                     # Search videos for this keyword
                     videos = self.youtube_searcher.search_videos(
@@ -78,86 +90,96 @@ class HeadlessYouTubeSearcher:
                         duration_filter=self.settings.get('duration', 'Any'),
                         quota_limit=api_cap - self.quota_used
                     )
-                    
+
                     self.quota_used += self.youtube_searcher.quota_used
                     print(f"  Found {len(videos)} videos, quota used so far: {self.quota_used}")
-                    
+
                     # Apply filters and deduplication
                     keyword_results = []
                     for video in videos:
                         self.search_stats['scanned'] += 1
-                        
+
                         # Check if already seen
                         if self.csv_handler.is_video_seen(video['video_id']):
                             self.search_stats['skipped'] += 1
                             continue
-                        
+
                         # Apply duration filter
                         duration_minutes = parse_duration_minutes(video.get('duration', ''))
                         if not self.passes_duration_filter(duration_minutes):
                             self.search_stats['skipped'] += 1
                             continue
-                        
+
                         # Apply view filter
                         view_count = int(video.get('view_count', 0))
                         if not self.passes_view_filter(view_count):
                             self.search_stats['skipped'] += 1
                             continue
-                        
+
+                        # timeframe view filter
+                        if not passes_timeframe_view_filter(
+                                view_count,
+                                video.get('published_at', ''),
+                                days_back,
+                                min_daily_views):
+                            self.search_stats['skipped'] += 1
+                            continue
+
                         # Apply subscriber filter
                         subscriber_count = int(video.get('subscriber_count', 0))
                         if self.settings.get('skip_hidden', True) and video.get('hidden_subscriber_count', False):
                             self.search_stats['skipped'] += 1
                             continue
-                        
+
                         if not self.passes_subscriber_filter(subscriber_count):
                             self.search_stats['skipped'] += 1
                             continue
-                        
+
                         # Add keyword and duration to video data
                         video['keyword'] = keyword
                         video['duration_minutes'] = duration_minutes
                         keyword_results.append(video)
                         self.search_stats['kept'] += 1
-                    
+
                     all_results.extend(keyword_results)
                     print(f"  Kept {len(keyword_results)} videos after filtering")
-                    
+
                     # Check quota limit
-                    if self.quota_used >= api_cap:
-                        print(f"\nDaily quota limit reached ({self.quota_used}/{api_cap})")
+                    warning_limit = quota_warning_threshold(api_cap)
+                    if warning_limit and self.quota_used >= warning_limit:
+                        print(f"⚠️  90 % quota reached ({self.quota_used}/{api_cap}) – stopping.")
                         break
-                        
+
                 except Exception as e:
                     print(f"  ERROR searching '{keyword}': {str(e)}")
                     continue
-            
+
             # Save results
             end_time = datetime.now()
             duration = end_time - start_time
-            
+
             print(f"\nSearch completed in {duration}")
             print(f"Stats: Scanned {self.search_stats['scanned']}, Kept {self.search_stats['kept']}, Skipped {self.search_stats['skipped']}")
             print(f"Total quota used: {self.quota_used}")
-            
+
             if all_results:
                 results_df = pd.DataFrame(all_results)
                 today = datetime.now().strftime('%Y-%m-%d')
                 results_file = f'export/results_{today}.csv'
-                
+
                 self.csv_handler.save_results(results_df, results_file)
                 self.csv_handler.update_history([r['video_id'] for r in all_results])
-                
+
                 print(f"Saved {len(all_results)} results to: {results_file}")
-                
+
                 # Log the run
                 self.log_run(start_time, self.quota_used, len(keywords), len(all_results))
-                
+
                 return True
             else:
                 print("No results found matching criteria")
                 return False
-                
+
         except Exception as e:
             print(f"FATAL ERROR: {str(e)}")
             return False

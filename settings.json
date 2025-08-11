@@ -1,0 +1,21 @@
+{
+  "keywords": "mrbeast",
+  "duration": "Any",
+  "duration_min": "",
+  "duration_max": "",
+  "views_min": "",
+  "views_max": "",
+  "subs_min": "",
+  "subs_max": "",
+  "days_back": "30",
+  "min_daily_views": "50000",
+  "history_keep_days": "30",
+  "schedule_time": "14:30",
+  "schedule_enabled": true,
+  "region": "",
+  "language": "",
+  "pages": "1",
+  "api_cap": "9500",
+  "skip_hidden": true,
+  "fresh_search": false
+}

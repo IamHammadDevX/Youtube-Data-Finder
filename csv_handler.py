@@ -1,6 +1,6 @@
 import pandas as pd
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 class CSVHandler:
     def __init__(self):
@@ -32,7 +32,7 @@ class CSVHandler:
             results_df = results_df[required_columns]
             
             # Save to CSV
-            results_df.to_csv(filename, index=False, encoding='utf-8')
+            results_df.to_csv(filename, index=False, encoding='utf-8-sig')
             print(f"Results saved to: {filename}")
             
         except Exception as e:
@@ -148,3 +148,21 @@ class CSVHandler:
         except Exception as e:
             print(f"Warning: Failed to get history stats: {str(e)}")
             return {'total_videos': 0, 'oldest_date': None, 'newest_date': None}
+    
+    def clear_history_older_than(self, days):
+        """Remove history entries older than <days> days (0 = no action)."""
+        try:
+            if not os.path.exists(self.history_file) or days <= 0:
+                return
+            cutoff = datetime.now() - timedelta(days=days)
+            df = pd.read_csv(self.history_file)
+            df['first_seen_date'] = pd.to_datetime(df['first_seen_date'], errors='coerce')
+            df = df[df['first_seen_date'] >= cutoff]
+            df.to_csv(self.history_file, index=False)
+            print(f"Auto-cleared history older than {days} days")
+        except Exception as e:
+            print(f"Warning: could not auto-clear history: {e}")
+
+    def clear_history_now(self):
+        """Immediately delete the entire history file."""
+        self.clear_history()

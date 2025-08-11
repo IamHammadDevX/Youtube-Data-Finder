@@ -189,3 +189,36 @@ def sanitize_filename(filename):
         filename = filename[:200]
     
     return filename.strip()
+
+def passes_timeframe_view_filter(view_count, published_at, days_back, min_daily_views):
+    """
+    Return True if view_count / days_since >= min_daily_views
+    days_back and min_daily_views may be '' or 0 → no filtering
+    """
+    if not days_back or not min_daily_views:
+        return True
+    try:
+        days_back_int = int(days_back)
+        min_daily_float = float(min_daily_views)
+        if days_back_int <= 0 or min_daily_float <= 0:
+            return True
+    except (ValueError, TypeError):
+        return True
+
+    try:
+        published_dt = datetime.fromisoformat(published_at.replace('Z', '+00:00'))
+    except Exception:
+        return True
+
+    delta_days = (datetime.now(published_dt.tzinfo) - published_dt).days
+    if delta_days <= 0:
+        return view_count >= min_daily_float  # treat same-day videos as 1 day
+    daily_avg = view_count / delta_days
+    return daily_avg >= min_daily_float
+
+def quota_warning_threshold(cap):
+    """Return 90 % of the cap as integer."""
+    try:
+        return int(cap) * 9 // 10
+    except (ValueError, TypeError):
+        return 0
