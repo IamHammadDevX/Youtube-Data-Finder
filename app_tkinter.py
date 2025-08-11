@@ -1,0 +1,695 @@
+import tkinter as tk
+from tkinter import ttk, messagebox, scrolledtext, filedialog
+import pandas as pd
+import os
+import json
+import threading
+import time
+import webbrowser
+from datetime import datetime
+from youtube_api import YouTubeSearcher
+from csv_handler import CSVHandler
+from config_manager import ConfigManager
+from utils import format_duration, parse_duration_minutes, validate_api_key
+
+class YouTubeFinderTkinter:
+    def __init__(self):
+        self.root = tk.Tk()
+        self.root.title("YouTube Finder")
+        self.root.geometry("1400x800")
+        self.root.configure(bg='#f0f0f0')
+        
+        # Initialize components
+        self.config_manager = ConfigManager()
+        self.csv_handler = CSVHandler()
+        self.youtube_searcher = None
+        self.search_thread = None
+        self.stop_search = False
+        
+        # Initialize API key
+        api_key = os.getenv('YOUTUBE_API_KEY', '')
+        if not api_key:
+            messagebox.showerror('API Key Error', 
+                               'YouTube API Key not found!\nPlease set YOUTUBE_API_KEY environment variable.')
+            self.root.quit()
+            return
+        
+        if not validate_api_key(api_key):
+            messagebox.showerror('API Key Error', 
+                               'Invalid YouTube API Key format!\nPlease check your YOUTUBE_API_KEY environment variable.')
+            self.root.quit()
+            return
+            
+        self.youtube_searcher = YouTubeSearcher(api_key)
+        
+        # UI State
+        self.results_df = pd.DataFrame()
+        self.quota_used = 0
+        self.search_stats = {'scanned': 0, 'kept': 0, 'skipped': 0}
+        
+        # Create directories
+        os.makedirs('data', exist_ok=True)
+        os.makedirs('export', exist_ok=True)
+        os.makedirs('logs', exist_ok=True)
+        
+        # Create UI
+        self.create_widgets()
+        self.load_settings()
+        
+    def create_widgets(self):
+        # Main container
+        main_frame = ttk.Frame(self.root, padding="10")
+        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        self.root.columnconfigure(0, weight=1)
+        self.root.rowconfigure(0, weight=1)
+        
+        # Left panel - Controls
+        left_frame = ttk.LabelFrame(main_frame, text="Search Controls", padding="10")
+        left_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
+        
+        # Right panel - Status and Results
+        right_frame = ttk.LabelFrame(main_frame, text="Results", padding="10")
+        right_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        main_frame.columnconfigure(1, weight=1)
+        main_frame.rowconfigure(0, weight=1)
+        
+        self.create_left_panel(left_frame)
+        self.create_right_panel(right_frame)
+        
+    def create_left_panel(self, parent):
+        row = 0
+        
+        # Keywords
+        ttk.Label(parent, text="Keywords/Phrases (one per line):", font=('Arial', 10, 'bold')).grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+        row += 1
+        
+        self.keywords_text = scrolledtext.ScrolledText(parent, width=40, height=8)
+        self.keywords_text.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        row += 1
+        
+        # Duration
+        ttk.Label(parent, text="Duration:", font=('Arial', 10, 'bold')).grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+        row += 1
+        
+        self.duration_var = tk.StringVar(value="Any")
+        duration_combo = ttk.Combobox(parent, textvariable=self.duration_var, values=['Any', 'Short (<4 min)', 'Medium (4-20 min)', 'Long (>20 min)', 'Custom'], state='readonly')
+        duration_combo.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
+        duration_combo.bind('<<ComboboxSelected>>', self.on_duration_change)
+        row += 1
+        
+        # Custom duration controls
+        duration_frame = ttk.Frame(parent)
+        duration_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        ttk.Label(duration_frame, text="Min (minutes):").grid(row=0, column=0, sticky=tk.W)
+        self.duration_min_var = tk.StringVar()
+        self.duration_min_entry = ttk.Entry(duration_frame, textvariable=self.duration_min_var, width=10, state='disabled')
+        self.duration_min_entry.grid(row=0, column=1, padx=(5, 10))
+        ttk.Label(duration_frame, text="Max:").grid(row=0, column=2, sticky=tk.W)
+        self.duration_max_var = tk.StringVar()
+        self.duration_max_entry = ttk.Entry(duration_frame, textvariable=self.duration_max_var, width=10, state='disabled')
+        self.duration_max_entry.grid(row=0, column=3, padx=(5, 0))
+        row += 1
+        
+        # Views
+        ttk.Label(parent, text="Views:", font=('Arial', 10, 'bold')).grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+        row += 1
+        
+        views_frame = ttk.Frame(parent)
+        views_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        ttk.Label(views_frame, text="Min:").grid(row=0, column=0, sticky=tk.W)
+        self.views_min_var = tk.StringVar()
+        ttk.Entry(views_frame, textvariable=self.views_min_var, width=15).grid(row=0, column=1, padx=(5, 10))
+        ttk.Label(views_frame, text="Max:").grid(row=0, column=2, sticky=tk.W)
+        self.views_max_var = tk.StringVar()
+        ttk.Entry(views_frame, textvariable=self.views_max_var, width=15).grid(row=0, column=3, padx=(5, 0))
+        row += 1
+        
+        # Subscribers
+        ttk.Label(parent, text="Subscribers:", font=('Arial', 10, 'bold')).grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+        row += 1
+        
+        subs_frame = ttk.Frame(parent)
+        subs_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        ttk.Label(subs_frame, text="Min:").grid(row=0, column=0, sticky=tk.W)
+        self.subs_min_var = tk.StringVar()
+        ttk.Entry(subs_frame, textvariable=self.subs_min_var, width=15).grid(row=0, column=1, padx=(5, 10))
+        ttk.Label(subs_frame, text="Max:").grid(row=0, column=2, sticky=tk.W)
+        self.subs_max_var = tk.StringVar()
+        ttk.Entry(subs_frame, textvariable=self.subs_max_var, width=15).grid(row=0, column=3, padx=(5, 0))
+        row += 1
+        
+        # Region and Language
+        region_lang_frame = ttk.Frame(parent)
+        region_lang_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        ttk.Label(region_lang_frame, text="Region:").grid(row=0, column=0, sticky=tk.W)
+        self.region_var = tk.StringVar()
+        ttk.Combobox(region_lang_frame, textvariable=self.region_var, values=['', 'US', 'GB', 'CA', 'AU', 'DE', 'FR', 'JP', 'IN', 'BR'], width=8).grid(row=0, column=1, padx=(5, 10))
+        ttk.Label(region_lang_frame, text="Language:").grid(row=0, column=2, sticky=tk.W)
+        self.language_var = tk.StringVar()
+        ttk.Combobox(region_lang_frame, textvariable=self.language_var, values=['', 'en', 'es', 'fr', 'de', 'ja', 'pt', 'hi', 'ru', 'ko'], width=8).grid(row=0, column=3, padx=(5, 0))
+        row += 1
+        
+        # Pages and API cap
+        pages_api_frame = ttk.Frame(parent)
+        pages_api_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        ttk.Label(pages_api_frame, text="Pages per keyword:").grid(row=0, column=0, sticky=tk.W)
+        self.pages_var = tk.StringVar(value="2")
+        ttk.Entry(pages_api_frame, textvariable=self.pages_var, width=8).grid(row=0, column=1, padx=(5, 10))
+        ttk.Label(pages_api_frame, text="Daily API cap:").grid(row=0, column=2, sticky=tk.W)
+        self.api_cap_var = tk.StringVar(value="9500")
+        ttk.Entry(pages_api_frame, textvariable=self.api_cap_var, width=8).grid(row=0, column=3, padx=(5, 0))
+        row += 1
+        
+        # Checkboxes
+        self.skip_hidden_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(parent, text="Skip hidden subscriber counts", variable=self.skip_hidden_var).grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+        row += 1
+        
+        self.fresh_search_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(parent, text="Fresh search (clear history)", variable=self.fresh_search_var).grid(row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
+        row += 1
+        
+        # Buttons
+        button_frame = ttk.Frame(parent)
+        button_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        self.start_button = ttk.Button(button_frame, text="Start Now", command=self.start_search)
+        self.start_button.grid(row=0, column=0, padx=(0, 5))
+        
+        ttk.Button(button_frame, text="Save Schedule...", command=self.save_schedule).grid(row=0, column=1, padx=5)
+        
+        self.stop_button = ttk.Button(button_frame, text="Stop Search", command=self.stop_search_func, state='disabled')
+        self.stop_button.grid(row=0, column=2, padx=(5, 0))
+        
+    def create_right_panel(self, parent):
+        # Status section
+        status_frame = ttk.LabelFrame(parent, text="Status", padding="5")
+        status_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        parent.columnconfigure(0, weight=1)
+        
+        self.quota_est_label = ttk.Label(status_frame, text="Estimated quota for this run: 0")
+        self.quota_est_label.grid(row=0, column=0, sticky=tk.W)
+        
+        self.quota_used_label = ttk.Label(status_frame, text="Current quota used: 0")
+        self.quota_used_label.grid(row=1, column=0, sticky=tk.W)
+        
+        # Progress bar
+        self.progress_var = tk.DoubleVar()
+        self.progress_bar = ttk.Progressbar(status_frame, variable=self.progress_var, maximum=100)
+        self.progress_bar.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=5)
+        status_frame.columnconfigure(0, weight=1)
+        
+        # Stats
+        stats_frame = ttk.Frame(status_frame)
+        stats_frame.grid(row=3, column=0, sticky=(tk.W, tk.E))
+        self.scanned_label = ttk.Label(stats_frame, text="Scanned: 0")
+        self.scanned_label.grid(row=0, column=0, padx=(0, 10))
+        self.kept_label = ttk.Label(stats_frame, text="Kept: 0")
+        self.kept_label.grid(row=0, column=1, padx=(0, 10))
+        self.skipped_label = ttk.Label(stats_frame, text="Skipped: 0")
+        self.skipped_label.grid(row=0, column=2)
+        
+        # Filters
+        filter_frame = ttk.LabelFrame(parent, text="Filters", padding="5")
+        filter_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        
+        ttk.Label(filter_frame, text="Filter by title:").grid(row=0, column=0, padx=(0, 5))
+        self.filter_title_var = tk.StringVar()
+        self.filter_title_entry = ttk.Entry(filter_frame, textvariable=self.filter_title_var, width=20)
+        self.filter_title_entry.grid(row=0, column=1, padx=(0, 10))
+        self.filter_title_entry.bind('<KeyRelease>', self.on_filter_change)
+        
+        ttk.Label(filter_frame, text="Min views:").grid(row=0, column=2, padx=(0, 5))
+        self.filter_views_var = tk.StringVar()
+        self.filter_views_entry = ttk.Entry(filter_frame, textvariable=self.filter_views_var, width=10)
+        self.filter_views_entry.grid(row=0, column=3)
+        self.filter_views_entry.bind('<KeyRelease>', self.on_filter_change)
+        
+        # Results table
+        table_frame = ttk.Frame(parent)
+        table_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        parent.rowconfigure(2, weight=1)
+        
+        # Treeview with scrollbars
+        self.tree = ttk.Treeview(table_frame, columns=('Title', 'Channel', 'Views', 'Duration', 'Published', 'Keyword'), show='headings', height=15)
+        
+        # Define headings
+        self.tree.heading('Title', text='Title')
+        self.tree.heading('Channel', text='Channel')
+        self.tree.heading('Views', text='Views')
+        self.tree.heading('Duration', text='Duration')
+        self.tree.heading('Published', text='Published')
+        self.tree.heading('Keyword', text='Keyword')
+        
+        # Configure column widths
+        self.tree.column('Title', width=300)
+        self.tree.column('Channel', width=150)
+        self.tree.column('Views', width=100)
+        self.tree.column('Duration', width=80)
+        self.tree.column('Published', width=100)
+        self.tree.column('Keyword', width=120)
+        
+        # Scrollbars
+        v_scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.tree.yview)
+        h_scrollbar = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
+        self.tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
+        
+        # Grid layout
+        self.tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        v_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
+        h_scrollbar.grid(row=1, column=0, sticky=(tk.W, tk.E))
+        
+        table_frame.columnconfigure(0, weight=1)
+        table_frame.rowconfigure(0, weight=1)
+        
+        # Action buttons
+        action_frame = ttk.Frame(parent)
+        action_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
+        
+        self.open_video_button = ttk.Button(action_frame, text="Open Video", command=self.open_video, state='disabled')
+        self.open_video_button.grid(row=0, column=0, padx=(0, 5))
+        
+        self.open_channel_button = ttk.Button(action_frame, text="Open Channel", command=self.open_channel, state='disabled')
+        self.open_channel_button.grid(row=0, column=1, padx=(0, 5))
+        
+        self.export_button = ttk.Button(action_frame, text="Export Results", command=self.export_results, state='disabled')
+        self.export_button.grid(row=0, column=2)
+        
+        # Bind tree selection
+        self.tree.bind('<<TreeviewSelect>>', self.on_tree_select)
+        
+    def on_duration_change(self, event=None):
+        if self.duration_var.get() == 'Custom':
+            self.duration_min_entry.config(state='normal')
+            self.duration_max_entry.config(state='normal')
+        else:
+            self.duration_min_entry.config(state='disabled')
+            self.duration_max_entry.config(state='disabled')
+        self.update_quota_estimate()
+    
+    def on_filter_change(self, event=None):
+        self.update_results_table()
+    
+    def on_tree_select(self, event=None):
+        selection = self.tree.selection()
+        if selection:
+            self.open_video_button.config(state='normal')
+            self.open_channel_button.config(state='normal')
+        else:
+            self.open_video_button.config(state='disabled')
+            self.open_channel_button.config(state='disabled')
+    
+    def update_quota_estimate(self):
+        keywords_text = self.keywords_text.get("1.0", tk.END).strip()
+        try:
+            pages_per_keyword = int(self.pages_var.get() or '2')
+        except ValueError:
+            pages_per_keyword = 2
+        
+        estimated_quota = self.estimate_quota(keywords_text, pages_per_keyword)
+        self.quota_est_label.config(text=f"Estimated quota for this run: {estimated_quota}")
+    
+    def estimate_quota(self, keywords, pages_per_keyword):
+        try:
+            keyword_count = len([k.strip() for k in keywords.split('\n') if k.strip()])
+            if keyword_count == 0:
+                return 0
+            
+            # search.list: 100 units per call
+            search_calls = keyword_count * int(pages_per_keyword)
+            search_quota = search_calls * 100
+            
+            # Estimate results (conservative: 30 results per page)
+            estimated_results = search_calls * 30
+            
+            # videos.list: 1 unit per call (batches of 50)
+            video_calls = (estimated_results + 49) // 50
+            video_quota = video_calls * 1
+            
+            # channels.list: 1 unit per call (batches of 50)  
+            channel_calls = video_calls
+            channel_quota = channel_calls * 1
+            
+            total_quota = search_quota + video_quota + channel_quota
+            return total_quota
+            
+        except Exception:
+            return 0
+    
+    def start_search(self):
+        # Validate inputs
+        keywords_text = self.keywords_text.get("1.0", tk.END).strip()
+        if not keywords_text:
+            messagebox.showerror('Input Error', 'Please enter at least one keyword!')
+            return
+        
+        keywords = [k.strip() for k in keywords_text.split('\n') if k.strip()]
+        
+        try:
+            pages_per_keyword = int(self.pages_var.get() or '2')
+            api_cap = int(self.api_cap_var.get() or '9500')
+        except ValueError:
+            messagebox.showerror('Input Error', 'Pages per keyword and API cap must be valid numbers!')
+            return
+        
+        # Validate quota
+        estimated_quota = self.estimate_quota(keywords_text, pages_per_keyword)
+        if estimated_quota > api_cap:
+            messagebox.showerror('Quota Error', 
+                               f'Estimated quota ({estimated_quota}) exceeds your daily cap ({api_cap})!\n'
+                               'Reduce keywords or pages per keyword.')
+            return
+        
+        # Prepare search config
+        search_config = {
+            'keywords': keywords,
+            'pages_per_keyword': pages_per_keyword,
+            'api_cap': api_cap,
+            'duration_filter': self.duration_var.get(),
+            'duration_min': self.duration_min_var.get(),
+            'duration_max': self.duration_max_var.get(),
+            'views_min': self.views_min_var.get(),
+            'views_max': self.views_max_var.get(),
+            'subs_min': self.subs_min_var.get(),
+            'subs_max': self.subs_max_var.get(),
+            'region': self.region_var.get(),
+            'language': self.language_var.get(),
+            'skip_hidden': self.skip_hidden_var.get(),
+            'fresh_search': self.fresh_search_var.get()
+        }
+        
+        # Update UI state
+        self.start_button.config(state='disabled')
+        self.stop_button.config(state='normal')
+        self.stop_search = False
+        self.search_stats = {'scanned': 0, 'kept': 0, 'skipped': 0}
+        self.progress_var.set(0)
+        
+        # Start search thread
+        self.search_thread = threading.Thread(target=self.search_worker, args=(search_config,))
+        self.search_thread.daemon = True
+        self.search_thread.start()
+    
+    def search_worker(self, config):
+        try:
+            # Clear history if fresh search
+            if config['fresh_search']:
+                self.csv_handler.clear_history()
+            
+            # Initialize results
+            all_results = []
+            self.quota_used = 0
+            total_keywords = len(config['keywords'])
+            
+            for i, keyword in enumerate(config['keywords']):
+                if self.stop_search:
+                    break
+                
+                # Update progress
+                progress = int((i / total_keywords) * 100)
+                self.root.after(0, lambda p=progress: self.progress_var.set(p))
+                
+                try:
+                    # Search videos for this keyword
+                    videos = self.youtube_searcher.search_videos(
+                        query=keyword,
+                        max_pages=config['pages_per_keyword'],
+                        region=config['region'],
+                        language=config['language'],
+                        duration_filter=config['duration_filter'],
+                        quota_limit=config['api_cap'] - self.quota_used
+                    )
+                    
+                    self.quota_used += self.youtube_searcher.quota_used
+                    self.root.after(0, lambda: self.quota_used_label.config(text=f"Current quota used: {self.quota_used}"))
+                    
+                    # Apply filters and deduplication
+                    for video in videos:
+                        if self.stop_search:
+                            break
+                        
+                        self.search_stats['scanned'] += 1
+                        
+                        # Check if already seen
+                        if self.csv_handler.is_video_seen(video['video_id']):
+                            self.search_stats['skipped'] += 1
+                            continue
+                        
+                        # Apply duration filter
+                        duration_minutes = parse_duration_minutes(video.get('duration', ''))
+                        if not self.passes_duration_filter(duration_minutes, config):
+                            self.search_stats['skipped'] += 1
+                            continue
+                        
+                        # Apply view filter
+                        view_count = int(video.get('view_count', 0))
+                        if not self.passes_view_filter(view_count, config):
+                            self.search_stats['skipped'] += 1
+                            continue
+                        
+                        # Apply subscriber filter
+                        subscriber_count = int(video.get('subscriber_count', 0))
+                        if config['skip_hidden'] and video.get('hidden_subscriber_count', False):
+                            self.search_stats['skipped'] += 1
+                            continue
+                        
+                        if not self.passes_subscriber_filter(subscriber_count, config):
+                            self.search_stats['skipped'] += 1
+                            continue
+                        
+                        # Add keyword to video data
+                        video['keyword'] = keyword
+                        video['duration_minutes'] = duration_minutes
+                        all_results.append(video)
+                        self.search_stats['kept'] += 1
+                        
+                        # Update stats display
+                        self.root.after(0, self.update_stats_display)
+                    
+                    # Check quota limit
+                    if self.quota_used >= config['api_cap']:
+                        messagebox.showinfo('Quota Limit', 'Daily quota limit reached!')
+                        break
+                        
+                except Exception as e:
+                    print(f'Error searching {keyword}: {str(e)}')
+                    continue
+            
+            # Save results
+            if all_results and not self.stop_search:
+                results_df = pd.DataFrame(all_results)
+                today = datetime.now().strftime('%Y-%m-%d')
+                results_file = f'export/results_{today}.csv'
+                
+                self.csv_handler.save_results(results_df, results_file)
+                self.csv_handler.update_history([r['video_id'] for r in all_results])
+                
+                # Update UI with results
+                self.results_df = results_df
+                self.root.after(0, self.update_results_table)
+                self.root.after(0, lambda: self.export_button.config(state='normal'))
+                self.root.after(0, lambda: messagebox.showinfo('Search Complete', f'Found {len(all_results)} videos!\nResults saved to: {results_file}'))
+            else:
+                self.root.after(0, lambda: messagebox.showinfo('Search Complete', 'No results found matching criteria'))
+                
+        except Exception as e:
+            self.root.after(0, lambda: messagebox.showerror('Search Error', f'An error occurred during search: {str(e)}'))
+        
+        finally:
+            # Re-enable start button
+            self.root.after(0, lambda: self.start_button.config(state='normal'))
+            self.root.after(0, lambda: self.stop_button.config(state='disabled'))
+            self.root.after(0, lambda: self.progress_var.set(100))
+    
+    def passes_duration_filter(self, duration_minutes, config):
+        duration_filter = config['duration_filter']
+        
+        if duration_filter == 'Any':
+            return True
+        elif duration_filter == 'Short (<4 min)':
+            return duration_minutes < 4
+        elif duration_filter == 'Medium (4-20 min)':
+            return 4 <= duration_minutes <= 20
+        elif duration_filter == 'Long (>20 min)':
+            return duration_minutes > 20
+        elif duration_filter == 'Custom':
+            duration_min = config['duration_min']
+            duration_max = config['duration_max']
+            min_dur = float(duration_min) if duration_min else 0
+            max_dur = float(duration_max) if duration_max else float('inf')
+            return min_dur <= duration_minutes <= max_dur
+        return True
+    
+    def passes_view_filter(self, view_count, config):
+        views_min = config['views_min']
+        views_max = config['views_max']
+        
+        if views_min and view_count < int(views_min):
+            return False
+        if views_max and view_count > int(views_max):
+            return False
+        return True
+    
+    def passes_subscriber_filter(self, subscriber_count, config):
+        subs_min = config['subs_min']
+        subs_max = config['subs_max']
+        
+        if subs_min and subscriber_count < int(subs_min):
+            return False
+        if subs_max and subscriber_count > int(subs_max):
+            return False
+        return True
+    
+    def update_stats_display(self):
+        self.scanned_label.config(text=f"Scanned: {self.search_stats['scanned']}")
+        self.kept_label.config(text=f"Kept: {self.search_stats['kept']}")
+        self.skipped_label.config(text=f"Skipped: {self.search_stats['skipped']}")
+    
+    def update_results_table(self):
+        # Clear existing items
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        
+        if self.results_df.empty:
+            return
+        
+        # Apply filters
+        filtered_df = self.results_df.copy()
+        
+        filter_title = self.filter_title_var.get()
+        if filter_title:
+            filtered_df = filtered_df[filtered_df['title'].str.contains(filter_title, case=False, na=False)]
+        
+        filter_views = self.filter_views_var.get()
+        if filter_views and filter_views.isdigit():
+            min_views = int(filter_views)
+            filtered_df = filtered_df[filtered_df['view_count'] >= min_views]
+        
+        # Populate tree
+        for _, row in filtered_df.iterrows():
+            title = row['title'][:50] + '...' if len(row['title']) > 50 else row['title']
+            values = (
+                title,
+                row['channel_title'],
+                f"{int(row['view_count']):,}",
+                format_duration(row['duration_minutes']),
+                row['published_at'][:10],
+                row['keyword']
+            )
+            self.tree.insert('', tk.END, values=values)
+    
+    def stop_search_func(self):
+        self.stop_search = True
+        self.start_button.config(state='normal')
+        self.stop_button.config(state='disabled')
+    
+    def open_video(self):
+        selection = self.tree.selection()
+        if selection:
+            item = selection[0]
+            # Get the original row index
+            for idx, row in self.results_df.iterrows():
+                title = row['title'][:50] + '...' if len(row['title']) > 50 else row['title']
+                if self.tree.item(item, 'values')[0] == title:
+                    webbrowser.open(row['video_url'])
+                    break
+    
+    def open_channel(self):
+        selection = self.tree.selection()
+        if selection:
+            item = selection[0]
+            # Get the original row index
+            for idx, row in self.results_df.iterrows():
+                title = row['title'][:50] + '...' if len(row['title']) > 50 else row['title']
+                if self.tree.item(item, 'values')[0] == title:
+                    channel_url = f"https://www.youtube.com/channel/{row['channel_id']}"
+                    webbrowser.open(channel_url)
+                    break
+    
+    def export_results(self):
+        if self.results_df.empty:
+            messagebox.showwarning('No Data', 'No results to export!')
+            return
+        
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            title="Export Results"
+        )
+        
+        if filename:
+            try:
+                self.csv_handler.save_results(self.results_df, filename)
+                messagebox.showinfo('Export Complete', f'Results exported to: {filename}')
+            except Exception as e:
+                messagebox.showerror('Export Error', f'Failed to export results: {str(e)}')
+    
+    def save_schedule(self):
+        # Get current settings
+        settings = self.get_current_settings()
+        
+        # Save settings
+        if self.config_manager.save_settings(settings):
+            messagebox.showinfo('Schedule Saved', 
+                              'Settings saved to settings.json\n\n'
+                              'To schedule this search:\n'
+                              '1. Run schedule_helper.bat as Administrator\n'
+                              '2. Or manually create a Windows Task Scheduler job:\n'
+                              f'   Command: python app_headless.py --settings settings.json')
+        else:
+            messagebox.showerror('Save Error', 'Failed to save settings!')
+    
+    def get_current_settings(self):
+        return {
+            'keywords': self.keywords_text.get("1.0", tk.END).strip(),
+            'duration': self.duration_var.get(),
+            'duration_min': self.duration_min_var.get(),
+            'duration_max': self.duration_max_var.get(),
+            'views_min': self.views_min_var.get(),
+            'views_max': self.views_max_var.get(),
+            'subs_min': self.subs_min_var.get(),
+            'subs_max': self.subs_max_var.get(),
+            'region': self.region_var.get(),
+            'language': self.language_var.get(),
+            'pages': self.pages_var.get(),
+            'api_cap': self.api_cap_var.get(),
+            'skip_hidden': self.skip_hidden_var.get(),
+            'fresh_search': self.fresh_search_var.get()
+        }
+    
+    def load_settings(self):
+        settings = self.config_manager.load_settings()
+        
+        self.keywords_text.delete("1.0", tk.END)
+        self.keywords_text.insert("1.0", settings.get('keywords', ''))
+        self.duration_var.set(settings.get('duration', 'Any'))
+        self.duration_min_var.set(settings.get('duration_min', ''))
+        self.duration_max_var.set(settings.get('duration_max', ''))
+        self.views_min_var.set(settings.get('views_min', ''))
+        self.views_max_var.set(settings.get('views_max', ''))
+        self.subs_min_var.set(settings.get('subs_min', ''))
+        self.subs_max_var.set(settings.get('subs_max', ''))
+        self.region_var.set(settings.get('region', ''))
+        self.language_var.set(settings.get('language', ''))
+        self.pages_var.set(settings.get('pages', '2'))
+        self.api_cap_var.set(settings.get('api_cap', '9500'))
+        self.skip_hidden_var.set(settings.get('skip_hidden', True))
+        self.fresh_search_var.set(settings.get('fresh_search', False))
+        
+        # Trigger duration change to enable/disable custom fields
+        self.on_duration_change()
+        self.update_quota_estimate()
+    
+    def run(self):
+        self.root.mainloop()
+
+def main():
+    try:
+        app = YouTubeFinderTkinter()
+        app.run()
+    except Exception as e:
+        print(f"Error starting application: {str(e)}")
+
+if __name__ == '__main__':
+    main()
