@@ -11,9 +11,9 @@ from youtube_api import YouTubeSearcher
 from csv_handler import CSVHandler
 from config_manager import ConfigManager
 from utils import format_duration, parse_duration_minutes, validate_api_key, passes_timeframe_view_filter, quota_warning_threshold, passes_upload_date_filter
-import tkinter as tk
-from tkinter import ttk
 from tkcalendar import DateEntry
+
+
 
 class YouTubeFinderTkinter:
     def __init__(self):
@@ -180,8 +180,7 @@ class YouTubeFinderTkinter:
         ttk.Label(tf_frame, text="days").grid(row=0, column=4)
         row += 1
 
-        # Upload-date range (NEW)
-                # Upload-date range (NEW)
+        # Upload-date range
         date_frame = ttk.LabelFrame(parent, text="Upload Date Range", padding="5")
         date_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
         row += 1
@@ -304,7 +303,7 @@ class YouTubeFinderTkinter:
         self.skipped_label = ttk.Label(stats_frame, text="Skipped: 0")
         self.skipped_label.grid(row=0, column=2)
         
-                        # FILTER BAR (above the table)
+        # FILTER BAR (above the table)
         filter_frame = ttk.LabelFrame(parent, text="Filters", padding="5")
         filter_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
 
@@ -351,7 +350,7 @@ class YouTubeFinderTkinter:
         # Treeview with scrollbars
         self.tree = ttk.Treeview(table_frame, columns=('Title', 'Channel', 'Views', 'Duration', 'Published', 'Keyword','Description', 'Tags'), show='headings', height=15)
         
-                # Tree-view with full columns
+        # Tree-view with full columns
         self.tree = ttk.Treeview(
             table_frame,
             columns=('Title', 'Channel', 'Views', 'Duration', 'Published', 'Keyword',
@@ -461,22 +460,21 @@ class YouTubeFinderTkinter:
 
         df = self.results_df.copy()
 
-        # ---------------- Title keyword (case-insensitive) ----------------
+        # Title keyword (case-insensitive)
         title_kw = self.filter_title_var.get().strip().lower()
         if title_kw:
             df = df[df['title'].str.contains(title_kw, na=False, case=False)]
 
-        # ---------------- Min total views --------------------------------
+        # Min total views
         try:
             min_v = int(self.filter_views_var.get().strip())
             df = df[df['view_count'] >= min_v]
         except ValueError:
             pass
 
-        # ---------------- Min daily views --------------------------------
+        # Min daily views
         try:
             min_daily = float(self.filter_daily_var.get().strip())
-            # Convert to naive UTC once
             df['published_at'] = pd.to_datetime(
                 df['published_at'], errors='coerce', utc=True).dt.tz_localize(None)
             now = pd.Timestamp.utcnow().tz_localize(None)
@@ -485,12 +483,11 @@ class YouTubeFinderTkinter:
         except ValueError:
             pass
 
-        # ---------------- Upload-date range filters (NEW) ----------------
+        # Upload-date range filters
         min_date_str = self.filter_min_date_var.get().strip()
         max_date_str = self.filter_max_date_var.get().strip()
 
         if min_date_str or max_date_str:
-            # Ensure datetime column exists
             df['published_at'] = pd.to_datetime(
                 df['published_at'], errors='coerce', utc=True).dt.tz_localize(None)
 
@@ -499,10 +496,10 @@ class YouTubeFinderTkinter:
                 df = df[df['published_at'] >= min_dt]
 
             if max_date_str:
-                max_dt = pd.to_datetime(max_date_str) + pd.Timedelta(days=1)  # inclusive
+                max_dt = pd.to_datetime(max_date_str) + pd.Timedelta(days=1)
                 df = df[df['published_at'] < max_dt]
 
-        # ---------------- Re-populate Tree-view --------------------------
+        # Re-populate Tree-view
         self.tree.delete(*self.tree.get_children())
         for _, row in df.iterrows():
             title = row['title'][:50] + '...' if len(row['title']) > 50 else row['title']
@@ -545,20 +542,15 @@ class YouTubeFinderTkinter:
         if not keyword_list:
             return 0
 
-        # YouTube-API cost constants
-        SEARCH_COST   = 100      # search.list per call
-        VIDEO_COST    = 1        # videos.list per 50 videos
-        CHANNEL_COST  = 1        # channels.list per 50 channels
+        SEARCH_COST   = 100
+        VIDEO_COST    = 1
+        CHANNEL_COST  = 1
 
         search_calls  = len(keyword_list) * pages_per_keyword
         search_quota  = search_calls * SEARCH_COST
-
-        # Conservative: 50 results per page, 80 % success
         videos_found  = search_calls * 50 * 0.8
         video_calls   = max(1, int(videos_found / 50))
         video_quota   = video_calls * VIDEO_COST
-
-        # One channel call per 50 videos
         channel_quota = video_calls * CHANNEL_COST
 
         return search_quota + video_quota + channel_quota
@@ -602,7 +594,11 @@ class YouTubeFinderTkinter:
             'region': self.region_var.get(),
             'language': self.language_var.get(),
             'skip_hidden': self.skip_hidden_var.get(),
-            'fresh_search': self.fresh_search_var.get()
+            'fresh_search': self.fresh_search_var.get(),
+            'days_back': self.days_back_var.get().strip(),
+            'min_daily_views': self.min_daily_views_var.get().strip(),
+            'upload_date_min': self.upload_min_var.get().strip(),
+            'upload_date_max': self.upload_max_var.get().strip()
         }
         
         # Update UI state
@@ -638,7 +634,7 @@ class YouTubeFinderTkinter:
             days_back = config.get('days_back', '').strip()
             min_daily_views = config.get('min_daily_views', '').strip()
 
-            # upload-date range parameters (NEW)
+            # upload-date range parameters
             upload_date_min = config.get('upload_date_min', '').strip()
             upload_date_max = config.get('upload_date_max', '').strip()
 
@@ -760,8 +756,24 @@ class YouTubeFinderTkinter:
                         break
 
                 except Exception as e:
-                    print(f'Error searching {keyword}: {str(e)}')
-                    continue
+                    if "quota exceeded" in str(e).lower() or "403" in str(e):
+                        self.root.after(
+                            0,
+                            lambda: messagebox.showerror(
+                                'Quota Exceeded',
+                                'YouTube API quota exceeded. Please try again tomorrow or increase your quota at:\n'
+                                'https://console.developers.google.com/.\n'
+                                'Search has been stopped.'))
+                        self.stop_search = True
+                        break
+                    else:
+                        print(f'Error searching {keyword}: {str(e)}')
+                        self.root.after(
+                            0,
+                            lambda: messagebox.showwarning(
+                                'Search Warning',
+                                f'Error searching keyword "{keyword}": {str(e)}. Continuing with next keyword.'))
+                        continue
 
             # Save results
             if all_results and not self.stop_search:
@@ -781,7 +793,7 @@ class YouTubeFinderTkinter:
                     lambda: messagebox.showinfo(
                         'Search Complete',
                         f'Found {len(all_results)} videos!\nResults saved to: {results_file}'))
-            else:
+            elif not self.stop_search:
                 self.root.after(
                     0,
                     lambda: messagebox.showinfo('Search Complete',
@@ -799,10 +811,9 @@ class YouTubeFinderTkinter:
             self.root.after(0, lambda: self.stop_button.config(state='disabled'))
             self.root.after(0, lambda: self.progress_var.set(100))
 
-            # ---- RESET date filters ----
+            # Reset date filters
             self.root.after(0, lambda: self.filter_min_date_var.set(''))
             self.root.after(0, lambda: self.filter_max_date_var.set(''))
-            
     
     def passes_duration_filter(self, duration_minutes, config):
         duration_filter = config['duration_filter']
@@ -850,34 +861,26 @@ class YouTubeFinderTkinter:
     
     def update_results_table(self):
         """Populate (or re-populate) the Tree-view from self.results_df."""
-        # 1. Clear existing rows
         for item in self.tree.get_children():
             self.tree.delete(item)
 
         if self.results_df.empty:
             return
 
-        # 2. Apply live filters (if any)
         df = self.results_df.copy()
 
-        # Title keyword
         title_kw = self.filter_title_var.get().strip().lower()
         if title_kw:
             df = df[df['title'].str.contains(title_kw, na=False, case=False)]
 
-        # Min total views
         try:
             min_v = int(self.filter_views_var.get().strip())
             df = df[df['view_count'] >= min_v]
         except ValueError:
             pass
 
-        # Min daily views (UTC-safe)
-                # Min and max date filters
-                # Min daily views (no apply, no tz headaches)
         try:
             min_daily = float(self.filter_daily_var.get().strip())
-            # Convert to naive UTC once
             df['published_at'] = pd.to_datetime(df['published_at'], errors='coerce', utc=True).dt.tz_localize(None)
             now = pd.Timestamp.utcnow().tz_localize(None)
             df['age_days'] = (now - df['published_at']).dt.days.clip(lower=1)
@@ -885,7 +888,21 @@ class YouTubeFinderTkinter:
         except ValueError:
             pass
 
-        # 3. Insert rows into Tree-view
+        min_date_str = self.filter_min_date_var.get().strip()
+        max_date_str = self.filter_max_date_var.get().strip()
+
+        if min_date_str or max_date_str:
+            df['published_at'] = pd.to_datetime(
+                df['published_at'], errors='coerce', utc=True).dt.tz_localize(None)
+
+            if min_date_str:
+                min_dt = pd.to_datetime(min_date_str)
+                df = df[df['published_at'] >= min_dt]
+
+            if max_date_str:
+                max_dt = pd.to_datetime(max_date_str) + pd.Timedelta(days=1)
+                df = df[df['published_at'] < max_dt]
+
         for _, row in df.iterrows():
             title = row['title'][:50] + '...' if len(row['title']) > 50 else row['title']
             desc  = row['description'][:60] + '...' if len(row['description']) > 60 else row['description']
@@ -910,7 +927,6 @@ class YouTubeFinderTkinter:
         selection = self.tree.selection()
         if selection:
             item = selection[0]
-            # Get the original row index
             for idx, row in self.results_df.iterrows():
                 title = row['title'][:50] + '...' if len(row['title']) > 50 else row['title']
                 if self.tree.item(item, 'values')[0] == title:
@@ -921,7 +937,6 @@ class YouTubeFinderTkinter:
         selection = self.tree.selection()
         if selection:
             item = selection[0]
-            # Get the original row index
             for idx, row in self.results_df.iterrows():
                 title = row['title'][:50] + '...' if len(row['title']) > 50 else row['title']
                 if self.tree.item(item, 'values')[0] == title:
@@ -948,10 +963,8 @@ class YouTubeFinderTkinter:
                 messagebox.showerror('Export Error', f'Failed to export results: {str(e)}')
     
     def save_schedule(self):
-        """Save GUI settings AND create a schedule file / command."""
         settings = self.get_current_settings()
 
-        # Validate schedule
         if settings.get('schedule_enabled'):
             try:
                 datetime.strptime(settings['schedule_time'], '%H:%M')
@@ -959,11 +972,9 @@ class YouTubeFinderTkinter:
                 messagebox.showerror('Schedule Error', 'Enter a valid HH:MM time!')
                 return
 
-        # Save JSON
         if self.config_manager.save_settings(settings):
             cmd = self.config_manager.create_task_scheduler_command()
             if settings.get('schedule_enabled'):
-                # Create scheduler file
                 sched_file = 'daily_schedule.bat'
                 with open(sched_file, 'w', encoding='utf-8') as f:
                     f.write(f'@echo off\n"{cmd["python_exe"]}" "{cmd["script_path"]}" --settings "{cmd["settings_path"]}"\n')
@@ -1028,7 +1039,6 @@ class YouTubeFinderTkinter:
         self.skip_hidden_var.set(settings.get('skip_hidden', True))
         self.fresh_search_var.set(settings.get('fresh_search', False))
         
-        # Trigger duration change to enable/disable custom fields
         self.on_duration_change()
         self.update_quota_estimate()
     

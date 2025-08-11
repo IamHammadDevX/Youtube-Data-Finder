@@ -14,7 +14,7 @@ class CSVHandler:
         os.makedirs('logs', exist_ok=True)
     
     def save_results(self, results_df, filename):
-        """Save search results to CSV file"""
+        """Save search results to CSV file, appending to existing data."""
         try:
             # Ensure all required columns are present
             required_columns = [
@@ -31,8 +31,18 @@ class CSVHandler:
             # Reorder columns to match specification
             results_df = results_df[required_columns]
             
-            # Save to CSV
-            results_df.to_csv(filename, index=False, encoding='utf-8-sig')
+            # Check if the file already exists
+            if os.path.exists(filename):
+                # Load existing data
+                existing_df = pd.read_csv(filename)
+                # Append new results to existing data
+                combined_df = pd.concat([existing_df, results_df], ignore_index=True)
+                # Save the combined data
+                combined_df.to_csv(filename, index=False, encoding='utf-8-sig')
+            else:
+                # Save new results if the file does not exist
+                results_df.to_csv(filename, index=False, encoding='utf-8-sig')
+            
             print(f"Results saved to: {filename}")
             
         except Exception as e:
