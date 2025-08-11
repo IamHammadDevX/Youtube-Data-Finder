@@ -222,3 +222,27 @@ def quota_warning_threshold(cap):
         return int(cap) * 9 // 10
     except (ValueError, TypeError):
         return 0
+    
+def passes_upload_date_filter(published_at_str, date_min_str, date_max_str):
+    """
+    Return True if the video's publish date falls inside the optional min/max range.
+    Empty strings = no restriction.
+    """
+    if not date_min_str and not date_max_str:
+        return True
+    try:
+        video_dt = datetime.fromisoformat(published_at_str.replace('Z', '+00:00'))
+    except Exception:
+        return True  # malformed date → let it through
+
+    if date_min_str:
+        min_dt = datetime.strptime(date_min_str, '%Y-%m-%d').replace(tzinfo=video_dt.tzinfo)
+        if video_dt < min_dt:
+            return False
+    if date_max_str:
+        max_dt = datetime.strptime(date_max_str, '%Y-%m-%d').replace(
+            tzinfo=video_dt.tzinfo
+        ) + timedelta(days=1)  # inclusive
+        if video_dt >= max_dt:
+            return False
+    return True

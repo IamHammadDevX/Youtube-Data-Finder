@@ -10,7 +10,7 @@ from datetime import datetime
 from youtube_api import YouTubeSearcher
 from csv_handler import CSVHandler
 from config_manager import ConfigManager
-from utils import format_duration, parse_duration_minutes, validate_api_key, passes_timeframe_view_filter, quota_warning_threshold
+from utils import format_duration, parse_duration_minutes, validate_api_key, passes_timeframe_view_filter, quota_warning_threshold, passes_upload_date_filter
 import tkinter as tk
 from tkinter import ttk
 from tkcalendar import DateEntry
@@ -85,155 +85,193 @@ class YouTubeFinderTkinter:
         self.create_right_panel(right_frame)
         
     def create_left_panel(self, parent):
+        # --- 1) scrollable container ---------------------------------------
+        canvas = tk.Canvas(parent, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+
+        # --- 2) all widgets go into scrollable_frame -----------------------
+        parent = scrollable_frame   # so the rest of the code stays identical
         row = 0
 
         # Keywords
         ttk.Label(parent, text="Keywords/Phrases (one per line):", font=('Arial', 10, 'bold')).grid(
-            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 2))
         row += 1
-        self.keywords_text = scrolledtext.ScrolledText(parent, width=40, height=8)
-        self.keywords_text.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        self.keywords_text = scrolledtext.ScrolledText(parent, width=40, height=6)
+        self.keywords_text.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
         row += 1
 
         # Duration
         ttk.Label(parent, text="Duration:", font=('Arial', 10, 'bold')).grid(
-            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 2))
         row += 1
         self.duration_var = tk.StringVar(value="Any")
         duration_combo = ttk.Combobox(parent, textvariable=self.duration_var,
                                     values=['Any', 'Short (<4 min)', 'Medium (4-20 min)', 'Long (>20 min)', 'Custom'],
                                     state='readonly')
-        duration_combo.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 5))
+        duration_combo.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 4))
         duration_combo.bind('<<ComboboxSelected>>', self.on_duration_change)
         row += 1
 
         # Custom duration controls
         duration_frame = ttk.Frame(parent)
-        duration_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-        ttk.Label(duration_frame, text="Min (minutes):").grid(row=0, column=0, sticky=tk.W)
+        duration_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
+        ttk.Label(duration_frame, text="Min (min):").grid(row=0, column=0, sticky=tk.W)
         self.duration_min_var = tk.StringVar()
         self.duration_min_entry = ttk.Entry(duration_frame, textvariable=self.duration_min_var, width=10, state='disabled')
-        self.duration_min_entry.grid(row=0, column=1, padx=(5, 10))
+        self.duration_min_entry.grid(row=0, column=1, padx=(3, 6))
         ttk.Label(duration_frame, text="Max:").grid(row=0, column=2, sticky=tk.W)
         self.duration_max_var = tk.StringVar()
         self.duration_max_entry = ttk.Entry(duration_frame, textvariable=self.duration_max_var, width=10, state='disabled')
-        self.duration_max_entry.grid(row=0, column=3, padx=(5, 0))
+        self.duration_max_entry.grid(row=0, column=3, padx=(3, 0))
         row += 1
 
         # Views
         ttk.Label(parent, text="Views:", font=('Arial', 10, 'bold')).grid(
-            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 2))
         row += 1
         views_frame = ttk.Frame(parent)
-        views_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        views_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
         ttk.Label(views_frame, text="Min:").grid(row=0, column=0, sticky=tk.W)
         self.views_min_var = tk.StringVar()
-        ttk.Entry(views_frame, textvariable=self.views_min_var, width=15).grid(row=0, column=1, padx=(5, 10))
+        ttk.Entry(views_frame, textvariable=self.views_min_var, width=15).grid(row=0, column=1, padx=(3, 6))
         ttk.Label(views_frame, text="Max:").grid(row=0, column=2, sticky=tk.W)
         self.views_max_var = tk.StringVar()
-        ttk.Entry(views_frame, textvariable=self.views_max_var, width=15).grid(row=0, column=3, padx=(5, 0))
+        ttk.Entry(views_frame, textvariable=self.views_max_var, width=15).grid(row=0, column=3, padx=(3, 0))
         row += 1
 
         # Subscribers
         ttk.Label(parent, text="Subscribers:", font=('Arial', 10, 'bold')).grid(
-            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 2))
         row += 1
         subs_frame = ttk.Frame(parent)
-        subs_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        subs_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
         ttk.Label(subs_frame, text="Min:").grid(row=0, column=0, sticky=tk.W)
         self.subs_min_var = tk.StringVar()
-        ttk.Entry(subs_frame, textvariable=self.subs_min_var, width=15).grid(row=0, column=1, padx=(5, 10))
+        ttk.Entry(subs_frame, textvariable=self.subs_min_var, width=15).grid(row=0, column=1, padx=(3, 6))
         ttk.Label(subs_frame, text="Max:").grid(row=0, column=2, sticky=tk.W)
         self.subs_max_var = tk.StringVar()
-        ttk.Entry(subs_frame, textvariable=self.subs_max_var, width=15).grid(row=0, column=3, padx=(5, 0))
+        ttk.Entry(subs_frame, textvariable=self.subs_max_var, width=15).grid(row=0, column=3, padx=(3, 0))
         row += 1
 
-        # NEW: Time-frame views filter
+        # Timeframe views
         ttk.Label(parent, text="Time-frame Views:", font=('Arial', 10, 'bold')).grid(
-            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 2))
         row += 1
         tf_frame = ttk.Frame(parent)
-        tf_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        tf_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
         ttk.Label(tf_frame, text="≥").grid(row=0, column=0, sticky=tk.W)
         self.min_daily_views_var = tk.StringVar()
-        ttk.Entry(tf_frame, textvariable=self.min_daily_views_var, width=12).grid(row=0, column=1, padx=(2, 5))
-        ttk.Label(tf_frame, text="daily views within").grid(row=0, column=2, padx=(5, 2))
+        ttk.Entry(tf_frame, textvariable=self.min_daily_views_var, width=12).grid(row=0, column=1, padx=(2, 3))
+        ttk.Label(tf_frame, text="daily views within").grid(row=0, column=2, padx=(3, 2))
         self.days_back_var = tk.StringVar()
-        ttk.Entry(tf_frame, textvariable=self.days_back_var, width=5).grid(row=0, column=3, padx=(2, 5))
+        ttk.Entry(tf_frame, textvariable=self.days_back_var, width=5).grid(row=0, column=3, padx=(2, 3))
         ttk.Label(tf_frame, text="days").grid(row=0, column=4)
         row += 1
 
-        # Region and Language
+        # Upload-date range (NEW)
+                # Upload-date range (NEW)
+        date_frame = ttk.LabelFrame(parent, text="Upload Date Range", padding="5")
+        date_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
+        row += 1
+
+        ttk.Label(date_frame, text="From:").grid(row=0, column=0, sticky=tk.W)
+        self.upload_min_var = tk.StringVar()
+        min_entry = DateEntry(date_frame, textvariable=self.upload_min_var,
+                              date_pattern='yyyy-mm-dd', width=12)
+        min_entry.grid(row=0, column=1, padx=(3, 6))
+
+        ttk.Label(date_frame, text="To:").grid(row=0, column=2, sticky=tk.W)
+        self.upload_max_var = tk.StringVar()
+        max_entry = DateEntry(date_frame, textvariable=self.upload_max_var,
+                              date_pattern='yyyy-mm-dd', width=12)
+        max_entry.grid(row=0, column=3, padx=(3, 0))
+
+        # Allow clearing with backspace / delete
+        for entry, var in ((min_entry, self.upload_min_var),
+                           (max_entry, self.upload_max_var)):
+            entry.bind('<KeyRelease>', lambda e, v=var: v.set('') if e.widget.get().strip() == '' else None)
+
+        row += 1
+
+        # Region / Language
         region_lang_frame = ttk.Frame(parent)
-        region_lang_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        region_lang_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
         ttk.Label(region_lang_frame, text="Region:").grid(row=0, column=0, sticky=tk.W)
         self.region_var = tk.StringVar()
         ttk.Combobox(region_lang_frame, textvariable=self.region_var,
                     values=['', 'US', 'GB', 'CA', 'AU', 'DE', 'FR', 'JP', 'IN', 'BR'], width=8).grid(
-            row=0, column=1, padx=(5, 10))
+            row=0, column=1, padx=(3, 6))
         ttk.Label(region_lang_frame, text="Language:").grid(row=0, column=2, sticky=tk.W)
         self.language_var = tk.StringVar()
         ttk.Combobox(region_lang_frame, textvariable=self.language_var,
                     values=['', 'en', 'es', 'fr', 'de', 'ja', 'pt', 'hi', 'ru', 'ko'], width=8).grid(
-            row=0, column=3, padx=(5, 0))
+            row=0, column=3, padx=(3, 0))
         row += 1
 
-        # Pages and API cap
+        # Pages / API cap
         pages_api_frame = ttk.Frame(parent)
-        pages_api_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-        ttk.Label(pages_api_frame, text="Pages per keyword:").grid(row=0, column=0, sticky=tk.W)
+        pages_api_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
+        ttk.Label(pages_api_frame, text="Pages/keyword:").grid(row=0, column=0, sticky=tk.W)
         self.pages_var = tk.StringVar(value="2")
-        ttk.Entry(pages_api_frame, textvariable=self.pages_var, width=8).grid(row=0, column=1, padx=(5, 10))
+        ttk.Entry(pages_api_frame, textvariable=self.pages_var, width=8).grid(row=0, column=1, padx=(3, 6))
         ttk.Label(pages_api_frame, text="Daily API cap:").grid(row=0, column=2, sticky=tk.W)
         self.api_cap_var = tk.StringVar(value="9500")
-        ttk.Entry(pages_api_frame, textvariable=self.api_cap_var, width=8).grid(row=0, column=3, padx=(5, 0))
+        ttk.Entry(pages_api_frame, textvariable=self.api_cap_var, width=8).grid(row=0, column=3, padx=(3, 0))
         row += 1
 
         # Checkboxes
         self.skip_hidden_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(parent, text="Skip hidden subscriber counts", variable=self.skip_hidden_var).grid(
-            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 4))
         row += 1
 
         self.fresh_search_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(parent, text="Fresh search (clear history)", variable=self.fresh_search_var).grid(
-            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 10))
+            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 6))
         row += 1
-                # History retention
-        ttk.Label(parent, text="History retention:", font=('Arial', 10, 'bold')).grid(
-            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 5))
+
+        # History retention
+        ttk.Label(parent, text="History retention (days, 0 = keep):", font=('Arial', 10, 'bold')).grid(
+            row=row, column=0, columnspan=2, sticky=tk.W, pady=(0, 2))
         row += 1
         hist_frame = ttk.Frame(parent)
-        hist_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
-        ttk.Label(hist_frame, text="Auto-clear after").grid(row=0, column=0, sticky=tk.W)
+        hist_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
         self.history_keep_days_entry = ttk.Entry(hist_frame, textvariable=self.history_keep_days_var, width=5)
-        self.history_keep_days_entry.grid(row=0, column=1, padx=(2, 2))
-        ttk.Label(hist_frame, text="days (0 = keep forever)").grid(row=0, column=2, sticky=tk.W)
-
-        # ── Schedule controls -------------------------------------------
-        sched_frame = ttk.LabelFrame(parent, text="Daily Schedule", padding="5")
-        sched_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
+        self.history_keep_days_entry.grid(row=0, column=0, padx=(0, 3))
+        ttk.Button(hist_frame, text="Clear now", command=self.clear_history_now).grid(row=0, column=1, padx=(6, 0))
         row += 1
 
-        ttk.Checkbutton(sched_frame, text="Enable daily run at",
-                        variable=self.schedule_enabled_var).grid(row=0, column=0, sticky=tk.W)
+        # Daily schedule
+        sched_frame = ttk.LabelFrame(parent, text="Daily Schedule", padding="5")
+        sched_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
+        row += 1
+        ttk.Checkbutton(sched_frame, text="Enable daily run at", variable=self.schedule_enabled_var).grid(
+            row=0, column=0, sticky=tk.W)
         self.time_entry = ttk.Entry(sched_frame, textvariable=self.schedule_time_var, width=5)
-        self.time_entry.grid(row=0, column=1, padx=(5, 0))
-        ttk.Label(sched_frame, text="(HH:MM 24h)").grid(row=0, column=2, padx=(5, 0))
-
-        # Manual clear button
-        ttk.Button(hist_frame, text="Clear history now", command=self.clear_history_now).grid(
-            row=0, column=3, padx=(10, 0))
+        self.time_entry.grid(row=0, column=1, padx=(3, 0))
+        ttk.Label(sched_frame, text="(HH:MM 24h)").grid(row=0, column=2, padx=(3, 0))
         row += 1
 
         # Buttons
         button_frame = ttk.Frame(parent)
-        button_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 10))
+        button_frame.grid(row=row, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(0, 6))
         self.start_button = ttk.Button(button_frame, text="Start Now", command=self.start_search)
-        self.start_button.grid(row=0, column=0, padx=(0, 5))
-        ttk.Button(button_frame, text="Save Schedule...", command=self.save_schedule).grid(row=0, column=1, padx=5)
+        self.start_button.grid(row=0, column=0, padx=(0, 3))
+        ttk.Button(button_frame, text="Save Schedule...", command=self.save_schedule).grid(row=0, column=1, padx=3)
         self.stop_button = ttk.Button(button_frame, text="Stop Search", command=self.stop_search_func, state='disabled')
-        self.stop_button.grid(row=0, column=2, padx=(5, 0))
+        self.stop_button.grid(row=0, column=2, padx=(3, 0))
         
     def create_right_panel(self, parent):
         # Status section
@@ -263,27 +301,44 @@ class YouTubeFinderTkinter:
         self.skipped_label = ttk.Label(stats_frame, text="Skipped: 0")
         self.skipped_label.grid(row=0, column=2)
         
-                # FILTER BAR (above the table)
+                        # FILTER BAR (above the table)
         filter_frame = ttk.LabelFrame(parent, text="Filters", padding="5")
         filter_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
 
-        ttk.Label(filter_frame, text="Title:").grid(row=0, column=0, padx=(0, 5))
+        col = 0
+        ttk.Label(filter_frame, text="Title:").grid(row=0, column=col); col += 1
         self.filter_title_var = tk.StringVar()
         ttk.Entry(filter_frame, textvariable=self.filter_title_var, width=20) \
-            .grid(row=0, column=1, padx=(0, 10))
-        self.filter_title_var.trace_add('write', self.on_filter_change)
+            .grid(row=0, column=col, padx=(0, 8)); col += 1
 
-        ttk.Label(filter_frame, text="Min Views:").grid(row=0, column=2, padx=(0, 5))
+        ttk.Label(filter_frame, text="Min Views:").grid(row=0, column=col); col += 1
         self.filter_views_var = tk.StringVar()
-        ttk.Entry(filter_frame, textvariable=self.filter_views_var, width=10) \
-            .grid(row=0, column=3, padx=(0, 10))
-        self.filter_views_var.trace_add('write', self.on_filter_change)
+        ttk.Entry(filter_frame, textvariable=self.filter_views_var, width=8) \
+            .grid(row=0, column=col, padx=(0, 8)); col += 1
 
-        ttk.Label(filter_frame, text="Min Daily Views:").grid(row=0, column=4, padx=(0, 5))
+        ttk.Label(filter_frame, text="Min Daily:").grid(row=0, column=col); col += 1
         self.filter_daily_var = tk.StringVar()
-        ttk.Entry(filter_frame, textvariable=self.filter_daily_var, width=10) \
-            .grid(row=0, column=5)
-        self.filter_daily_var.trace_add('write', self.on_filter_change)
+        ttk.Entry(filter_frame, textvariable=self.filter_daily_var, width=8) \
+            .grid(row=0, column=col, padx=(0, 8)); col += 1
+
+        # ---- NEW: upload-date pickers ----
+        ttk.Label(filter_frame, text="From:").grid(row=0, column=col); col += 1
+        self.filter_min_date_var = tk.StringVar()
+        DateEntry(filter_frame, textvariable=self.filter_min_date_var,
+                  date_pattern='yyyy-mm-dd', width=10) \
+            .grid(row=0, column=col, padx=(0, 8)); col += 1
+
+        ttk.Label(filter_frame, text="To:").grid(row=0, column=col); col += 1
+        self.filter_max_date_var = tk.StringVar()
+        DateEntry(filter_frame, textvariable=self.filter_max_date_var,
+                  date_pattern='yyyy-mm-dd', width=10) \
+            .grid(row=0, column=col); col += 1
+
+        # trace all for live filtering
+        for v in (self.filter_title_var, self.filter_views_var,
+                  self.filter_daily_var, self.filter_min_date_var,
+                  self.filter_max_date_var):
+            v.trace_add('write', self.on_filter_change)
         
         # Results table
         table_frame = ttk.Frame(parent)
@@ -403,24 +458,48 @@ class YouTubeFinderTkinter:
 
         df = self.results_df.copy()
 
-        # Title keyword (case-insensitive)
+        # ---------------- Title keyword (case-insensitive) ----------------
         title_kw = self.filter_title_var.get().strip().lower()
         if title_kw:
             df = df[df['title'].str.contains(title_kw, na=False, case=False)]
 
-        # Min total views
-                # Min daily views (no apply, no tz headaches)
+        # ---------------- Min total views --------------------------------
+        try:
+            min_v = int(self.filter_views_var.get().strip())
+            df = df[df['view_count'] >= min_v]
+        except ValueError:
+            pass
+
+        # ---------------- Min daily views --------------------------------
         try:
             min_daily = float(self.filter_daily_var.get().strip())
             # Convert to naive UTC once
-            df['published_at'] = pd.to_datetime(df['published_at'], errors='coerce', utc=True).dt.tz_localize(None)
+            df['published_at'] = pd.to_datetime(
+                df['published_at'], errors='coerce', utc=True).dt.tz_localize(None)
             now = pd.Timestamp.utcnow().tz_localize(None)
             df['age_days'] = (now - df['published_at']).dt.days.clip(lower=1)
             df = df[df['view_count'] / df['age_days'] >= min_daily]
         except ValueError:
             pass
 
-        # Re-populate Tree-view
+        # ---------------- Upload-date range filters (NEW) ----------------
+        min_date_str = self.filter_min_date_var.get().strip()
+        max_date_str = self.filter_max_date_var.get().strip()
+
+        if min_date_str or max_date_str:
+            # Ensure datetime column exists
+            df['published_at'] = pd.to_datetime(
+                df['published_at'], errors='coerce', utc=True).dt.tz_localize(None)
+
+            if min_date_str:
+                min_dt = pd.to_datetime(min_date_str)
+                df = df[df['published_at'] >= min_dt]
+
+            if max_date_str:
+                max_dt = pd.to_datetime(max_date_str) + pd.Timedelta(days=1)  # inclusive
+                df = df[df['published_at'] < max_dt]
+
+        # ---------------- Re-populate Tree-view --------------------------
         self.tree.delete(*self.tree.get_children())
         for _, row in df.iterrows():
             title = row['title'][:50] + '...' if len(row['title']) > 50 else row['title']
@@ -543,7 +622,7 @@ class YouTubeFinderTkinter:
             if config['fresh_search']:
                 self.csv_handler.clear_history()
 
-            # NEW: auto-clear old history before the main loop
+            # Auto-clear old history before the main loop
             keep_days_str = config.get('history_keep_days', '').strip()
             if keep_days_str.isdigit():
                 keep_days = int(keep_days_str)
@@ -554,11 +633,21 @@ class YouTubeFinderTkinter:
             self.quota_used = 0
             total_keywords = len(config['keywords'])
 
-            # NEW: timeframe-view parameters
+            # timeframe-view parameters
             days_back = config.get('days_back', '').strip()
             min_daily_views = config.get('min_daily_views', '').strip()
 
-            # NEW: 90 % warning threshold
+            # upload-date range parameters (NEW)
+            upload_date_min = config.get('upload_date_min', '').strip()
+            upload_date_max = config.get('upload_date_max', '').strip()
+
+            # Build RFC-3339 timestamps for YouTube API
+            def _to_rfc(dt_str):
+                return f"{dt_str}T00:00:00Z" if dt_str else ''
+            published_after  = _to_rfc(upload_date_min)
+            published_before = _to_rfc(upload_date_max)
+
+            # 90 % warning threshold
             warning_limit = quota_warning_threshold(config['api_cap'])
 
             for i, keyword in enumerate(config['keywords']):
@@ -570,19 +659,21 @@ class YouTubeFinderTkinter:
                 self.root.after(0, lambda p=progress: self.progress_var.set(p))
 
                 try:
-                    # Search videos for this keyword
+                    # Search videos for this keyword WITH date bounds
                     videos = self.youtube_searcher.search_videos(
                         query=keyword,
                         max_pages=config['pages_per_keyword'],
                         region=config['region'],
                         language=config['language'],
                         duration_filter=config['duration_filter'],
-                        quota_limit=config['api_cap'] - self.quota_used
+                        quota_limit=config['api_cap'] - self.quota_used,
+                        published_after=published_after,
+                        published_before=published_before
                     )
 
                     self.quota_used += self.youtube_searcher.quota_used
 
-                    # NEW: update quota label with color change
+                    # update quota label with color change
                     def _update_quota_label():
                         self.quota_used_label.config(text=f"Current quota used: {self.quota_used}")
                         if warning_limit and self.quota_used >= warning_limit:
@@ -591,7 +682,7 @@ class YouTubeFinderTkinter:
                             self.quota_used_label.config(foreground='black')
                     self.root.after(0, _update_quota_label)
 
-                    # NEW: 90 % warning pop-up & auto-stop
+                    # 90 % warning pop-up & auto-stop
                     if warning_limit and self.quota_used >= warning_limit:
                         self.root.after(
                             0,
@@ -625,12 +716,20 @@ class YouTubeFinderTkinter:
                             self.search_stats['skipped'] += 1
                             continue
 
-                        # NEW: timeframe view filter
+                        # timeframe view filter
                         if not passes_timeframe_view_filter(
                                 view_count,
                                 video.get('published_at', ''),
                                 days_back,
                                 min_daily_views):
+                            self.search_stats['skipped'] += 1
+                            continue
+
+                        # upload-date range filter (post-fetch sanity check)
+                        if not passes_upload_date_filter(
+                                video.get('published_at', ''),
+                                upload_date_min,
+                                upload_date_max):
                             self.search_stats['skipped'] += 1
                             continue
 
@@ -698,6 +797,11 @@ class YouTubeFinderTkinter:
             self.root.after(0, lambda: self.start_button.config(state='normal'))
             self.root.after(0, lambda: self.stop_button.config(state='disabled'))
             self.root.after(0, lambda: self.progress_var.set(100))
+
+            # ---- RESET date filters ----
+            self.root.after(0, lambda: self.filter_min_date_var.set(''))
+            self.root.after(0, lambda: self.filter_max_date_var.set(''))
+            
     
     def passes_duration_filter(self, duration_minutes, config):
         duration_filter = config['duration_filter']
@@ -887,6 +991,8 @@ class YouTubeFinderTkinter:
             'history_keep_days': self.history_keep_days_var.get().strip(),
             'schedule_time': self.schedule_time_var.get().strip(),
             'schedule_enabled': self.schedule_enabled_var.get(),
+            'upload_date_min': self.upload_min_var.get().strip(),
+            'upload_date_max': self.upload_max_var.get().strip(),
             'region': self.region_var.get(),
             'language': self.language_var.get(),
             'pages': self.pages_var.get(),
@@ -910,6 +1016,8 @@ class YouTubeFinderTkinter:
         self.days_back_var.set(settings.get('days_back', ''))
         self.min_daily_views_var.set(settings.get('min_daily_views', ''))
         self.history_keep_days_var.set(settings.get('history_keep_days', ''))
+        self.upload_min_var.set(settings.get('upload_date_min', ''))
+        self.upload_max_var.set(settings.get('upload_date_max', ''))
         self.schedule_time_var.set(settings.get('schedule_time', ''))
         self.schedule_enabled_var.set(settings.get('schedule_enabled', False))
         self.region_var.set(settings.get('region', ''))

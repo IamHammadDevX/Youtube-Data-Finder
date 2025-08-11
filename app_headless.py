@@ -6,7 +6,7 @@ from datetime import datetime
 import pandas as pd
 from youtube_api import YouTubeSearcher
 from csv_handler import CSVHandler
-from utils import parse_duration_minutes, validate_api_key, passes_timeframe_view_filter, quota_warning_threshold
+from utils import parse_duration_minutes, validate_api_key, passes_timeframe_view_filter, quota_warning_threshold, passes_upload_date_filter
 from datetime import datetime, timedelta        # NEW: timedelta for auto-clear
 
 
@@ -59,11 +59,21 @@ class HeadlessYouTubeSearcher:
             pages_per_keyword = int(self.settings.get('pages', 2))
             api_cap = int(self.settings.get('api_cap', 9500))
 
-            # NEW: timeframe-view filter parameters
+            # timeframe-view filter parameters
             days_back = self.settings.get('days_back', '').strip()
             min_daily_views = self.settings.get('min_daily_views', '').strip()
 
-            # NEW: history retention auto-clear
+            # upload-date range parameters
+            upload_date_min = self.settings.get('upload_date_min', '').strip()
+            upload_date_max = self.settings.get('upload_date_max', '').strip()
+
+            # Build RFC-3339 timestamps for YouTube API
+            def _to_rfc(dt_str):
+                return f"{dt_str}T00:00:00Z" if dt_str else ''
+            published_after  = _to_rfc(upload_date_min)
+            published_before = _to_rfc(upload_date_max)
+
+            # history retention auto-clear
             keep_days_str = self.settings.get('history_keep_days', '').strip()
             if keep_days_str.isdigit():
                 keep_days = int(keep_days_str)
@@ -81,14 +91,16 @@ class HeadlessYouTubeSearcher:
                 print(f"\nProcessing keyword {i}/{len(keywords)}: '{keyword}'")
 
                 try:
-                    # Search videos for this keyword
+                    # Search videos for this keyword with upload-date range
                     videos = self.youtube_searcher.search_videos(
                         query=keyword,
                         max_pages=pages_per_keyword,
                         region=self.settings.get('region', ''),
                         language=self.settings.get('language', ''),
                         duration_filter=self.settings.get('duration', 'Any'),
-                        quota_limit=api_cap - self.quota_used
+                        quota_limit=api_cap - self.quota_used,
+                        published_after=published_after,
+                        published_before=published_before
                     )
 
                     self.quota_used += self.youtube_searcher.quota_used
@@ -122,6 +134,14 @@ class HeadlessYouTubeSearcher:
                                 video.get('published_at', ''),
                                 days_back,
                                 min_daily_views):
+                            self.search_stats['skipped'] += 1
+                            continue
+
+                        # upload-date range filter (post-fetch sanity check)
+                        if not passes_upload_date_filter(
+                                video.get('published_at', ''),
+                                upload_date_min,
+                                upload_date_max):
                             self.search_stats['skipped'] += 1
                             continue
 
@@ -183,26 +203,6 @@ class HeadlessYouTubeSearcher:
         except Exception as e:
             print(f"FATAL ERROR: {str(e)}")
             return False
-    
-    def passes_duration_filter(self, duration_minutes):
-        """Check if video passes duration filter"""
-        duration_filter = self.settings.get('duration', 'Any')
-        
-        if duration_filter == 'Any':
-            return True
-        elif duration_filter == 'Short (<4 min)':
-            return duration_minutes < 4
-        elif duration_filter == 'Medium (4-20 min)':
-            return 4 <= duration_minutes <= 20
-        elif duration_filter == 'Long (>20 min)':
-            return duration_minutes > 20
-        elif duration_filter == 'Custom':
-            duration_min = self.settings.get('duration_min', '')
-            duration_max = self.settings.get('duration_max', '')
-            min_dur = float(duration_min) if duration_min else 0
-            max_dur = float(duration_max) if duration_max else float('inf')
-            return min_dur <= duration_minutes <= max_dur
-        return True
     
     def passes_view_filter(self, view_count):
         """Check if video passes view count filter"""

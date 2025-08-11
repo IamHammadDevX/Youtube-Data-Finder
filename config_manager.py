@@ -24,7 +24,9 @@ class ConfigManager:
             'pages': '2',
             'api_cap': '9500',
             'skip_hidden': True,
-            'fresh_search': False
+            'fresh_search': False,
+            'upload_date_min': '',
+            'upload_date_max': '',
         }
     
     def save_settings(self, settings):
@@ -156,6 +158,23 @@ class ConfigManager:
                 datetime.strptime(st, '%H:%M')
             except ValueError:
                 errors.append("Schedule time must be in HH:MM 24-hour format")
+                
+                # Validate upload date range
+        date_min = settings.get('upload_date_min', '').strip()
+        date_max = settings.get('upload_date_max', '').strip()
+        if date_min:
+            try:
+                datetime.strptime(date_min, '%Y-%m-%d')
+            except ValueError:
+                errors.append("Upload date min must be YYYY-MM-DD")
+        if date_max:
+            try:
+                datetime.strptime(date_max, '%Y-%m-%d')
+            except ValueError:
+                errors.append("Upload date max must be YYYY-MM-DD")
+        if date_min and date_max:
+            if datetime.strptime(date_min, '%Y-%m-%d') > datetime.strptime(date_max, '%Y-%m-%d'):
+                errors.append("Upload date min must be ≤ max")
 
         return errors
     
