@@ -2,19 +2,27 @@
 
 ## Overview
 
-YouTube Finder is a Windows desktop application for searching and filtering YouTube videos with comprehensive API quota management. It provides both GUI and headless operation modes for searching YouTube content based on multiple criteria, with intelligent duplicate prevention and CSV-based data storage. The application is designed to respect YouTube API quota limits while providing comprehensive video metadata for analysis and export.
+YouTube Finder is a desktop application for searching and filtering YouTube videos with comprehensive API quota management. It provides both GUI and headless operation modes for searching YouTube content based on multiple criteria, with intelligent duplicate prevention and CSV-based data storage. The application is designed to respect YouTube API quota limits while providing comprehensive video metadata for analysis and export.
 
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
+
+## Recent Changes
+
+**2025-08-11**: 
+- Switched from PySimpleGUI to Tkinter due to compatibility issues
+- Created new Tkinter-based GUI (`app_tkinter.py`) with improved layout
+- Cleaned up project by removing irrelevant files
+- Application now runs successfully with desktop GUI interface
 
 ## System Architecture
 
 ### Application Structure
 The system follows a modular architecture with clear separation of concerns:
 
-- **Main GUI Application** (`app.py`) - PySimpleGUI-based desktop interface
-- **Headless Application** (`app_headless.py`) - Command-line version for scheduled operations
+- **Main GUI Application** (`app_tkinter.py`) - Tkinter-based desktop interface
+- **Headless Application** (`app_headless.py`) - Command-line version for scheduled operations  
 - **YouTube API Integration** (`youtube_api.py`) - Handles all YouTube Data API v3 interactions
 - **CSV Data Management** (`csv_handler.py`) - Manages all file-based data operations
 - **Configuration Management** (`config_manager.py`) - Handles settings persistence in JSON format
@@ -62,16 +70,16 @@ Comprehensive error handling includes:
   - Uses search, videos, and channels endpoints
 
 ### Python Dependencies
-- **PySimpleGUI**: Desktop GUI framework for the main application interface
+- **tkinter**: Desktop GUI framework for the main application interface (built-in with Python)
 - **requests**: HTTP client for YouTube API communication
 - **pandas**: Data manipulation and CSV handling
 - **isodate**: ISO 8601 duration parsing for video length processing
 - **pyyaml**: YAML configuration support (optional)
 
 ### System Dependencies
-- **Windows 10/11**: Target operating system
-- **Python 3.10+**: Runtime requirement
-- **Windows Task Scheduler**: Optional integration for automated searches
+- **Python 3.10+**: Runtime requirement with tkinter support
+- **Windows Task Scheduler**: Optional integration for automated searches (Windows)
+- **Cross-platform**: Application works on Windows, macOS, and Linux
 
 ### File System Structure
 The application creates and manages several directories:
