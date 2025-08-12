@@ -13,8 +13,6 @@ from config_manager import ConfigManager
 from utils import format_duration, parse_duration_minutes, validate_api_key, passes_timeframe_view_filter, quota_warning_threshold, passes_upload_date_filter
 from tkcalendar import DateEntry
 
-
-
 class YouTubeFinderTkinter:
     def __init__(self):
         self.root = tk.Tk()
@@ -336,8 +334,8 @@ class YouTubeFinderTkinter:
             .grid(row=0, column=col); col += 1
 
         for v in (self.filter_title_var, self.filter_views_var,
-                self.filter_subs_var, self.filter_min_date_var,
-                self.filter_max_date_var):
+                  self.filter_subs_var, self.filter_min_date_var,
+                  self.filter_max_date_var):
             v.trace_add('write', self.on_filter_change)
 
         # Results table
@@ -345,7 +343,6 @@ class YouTubeFinderTkinter:
         table_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         parent.rowconfigure(2, weight=1)
 
-        # Treeview with the **correct** columns and order
         self.tree = ttk.Treeview(
             table_frame,
             columns=('Title', 'Subscribers', 'Views', 'Likes', 'Published',
@@ -400,7 +397,7 @@ class YouTubeFinderTkinter:
 
         # Bind tree selection
         self.tree.bind('<<TreeviewSelect>>', self.on_tree_select)
-    
+
     def sort_column(self, col, dtype):
         """Cycle asc -> desc -> no-sort for the clicked column."""
         data = [(self.tree.set(k, col), k) for k in self.tree.get_children('')]
@@ -439,7 +436,7 @@ class YouTubeFinderTkinter:
 
         # Update header arrow
         self.tree.heading(col, text=f"{col.split()[0]} {arrow}".strip())
-    
+
     def clear_history_now(self):
         """Immediately wipe the history file and refresh UI."""
         self.csv_handler.clear_history_now()
@@ -453,7 +450,7 @@ class YouTubeFinderTkinter:
             self.duration_min_entry.config(state='disabled')
             self.duration_max_entry.config(state='disabled')
         self.update_quota_estimate()
-    
+
     def on_filter_change(self, *args):
         """Refresh the table whenever any filter field changes."""
         if self.results_df.empty:
@@ -476,7 +473,7 @@ class YouTubeFinderTkinter:
             except Exception:
                 pass
 
-        # Subscribers filter
+        # Subscribers filter (min only for filter bar)
         min_subs_str = self.filter_subs_var.get().strip()
         if min_subs_str:
             try:
@@ -520,7 +517,73 @@ class YouTubeFinderTkinter:
                 desc,
                 tags
             ))
-    
+
+    def update_results_table(self):
+        """Populate (or re-populate) the Tree-view from self.results_df."""
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+
+        if self.results_df.empty:
+            return
+
+        df = self.results_df.copy()
+
+        title_kw = self.filter_title_var.get().strip().lower()
+        if title_kw:
+            df = df[df['title'].str.contains(title_kw, na=False, case=False)]
+
+        # Min total views
+        min_v_str = self.filter_views_var.get().strip()
+        if min_v_str:
+            try:
+                min_v = int(min_v_str)
+                df['view_count'] = pd.to_numeric(df['view_count'], errors='coerce').fillna(0).astype(int)
+                df = df[df['view_count'] >= min_v]
+            except Exception:
+                pass
+
+        # Subscribers filter (min only for filter bar)
+        min_subs_str = self.filter_subs_var.get().strip()
+        if min_subs_str:
+            try:
+                min_subs = int(min_subs_str)
+                df['subscriber_count'] = pd.to_numeric(df['subscriber_count'], errors='coerce').fillna(0).astype(int)
+                df = df[df['subscriber_count'] >= min_subs]
+            except Exception:
+                pass
+
+        min_date_str = self.filter_min_date_var.get().strip()
+        max_date_str = self.filter_max_date_var.get().strip()
+
+        if min_date_str or max_date_str:
+            df['published_at'] = pd.to_datetime(
+                df['published_at'], errors='coerce', utc=True).dt.tz_localize(None)
+
+            if min_date_str:
+                min_dt = pd.to_datetime(min_date_str)
+                df = df[df['published_at'] >= min_dt]
+
+            if max_date_str:
+                max_dt = pd.to_datetime(max_date_str) + pd.Timedelta(days=1)
+                df = df[df['published_at'] < max_dt]
+
+        for _, row in df.iterrows():
+            title = row['title'][:50] + '...' if len(row['title']) > 50 else row['title']
+            desc  = row['description'][:60] + '...' if len(row['description']) > 60 else row['description']
+            tags  = row['tags'][:40] + '...' if len(row['tags']) > 40 else row['tags']
+            self.tree.insert('', tk.END, values=(
+                title,
+                f"{int(row['subscriber_count']):,}",
+                f"{int(row['view_count']):,}",
+                f"{int(row['likes']):,}",
+                str(row['published_at'])[:10],
+                format_duration(row['duration_minutes']),
+                row['channel_title'],
+                row['keyword'],
+                desc,
+                tags
+            ))
+        
     def on_tree_select(self, event=None):
         selection = self.tree.selection()
         if selection:
@@ -530,36 +593,6 @@ class YouTubeFinderTkinter:
             self.open_video_button.config(state='disabled')
             self.open_channel_button.config(state='disabled')
 
-    def update_quota_estimate(self, *args):
-        """Real-time quota estimate based on live keywords & pages."""
-        keywords = self.keywords_text.get("1.0", tk.END).strip()
-        try:
-            pages = int(self.pages_var.get() or '2')
-        except ValueError:
-            pages = 2
-
-        est = self.estimate_quota(keywords, pages)
-        self.quota_est_label.config(text=f"Estimated quota: {est}")
-    
-    def estimate_quota(self, keywords_raw, pages_per_keyword):
-        """Return exact YouTube-API quota cost for the live keywords."""
-        keyword_list = [k.strip() for k in keywords_raw.split('\n') if k.strip()]
-        if not keyword_list:
-            return 0
-
-        SEARCH_COST   = 100
-        VIDEO_COST    = 1
-        CHANNEL_COST  = 1
-
-        search_calls  = len(keyword_list) * pages_per_keyword
-        search_quota  = search_calls * SEARCH_COST
-        videos_found  = search_calls * 50 * 0.8
-        video_calls   = max(1, int(videos_found / 50))
-        video_quota   = video_calls * VIDEO_COST
-        channel_quota = video_calls * CHANNEL_COST
-
-        return search_quota + video_quota + channel_quota
-    
     def start_search(self):
         # Validate inputs
         keywords_text = self.keywords_text.get("1.0", tk.END).strip()
@@ -603,7 +636,8 @@ class YouTubeFinderTkinter:
             'days_back': self.days_back_var.get().strip(),
             'min_daily_views': self.min_daily_views_var.get().strip(),
             'upload_date_min': self.upload_min_var.get().strip(),
-            'upload_date_max': self.upload_max_var.get().strip()
+            'upload_date_max': self.upload_max_var.get().strip(),
+            'history_keep_days': self.history_keep_days_var.get().strip()
         }
         
         # Update UI state
@@ -617,7 +651,7 @@ class YouTubeFinderTkinter:
         self.search_thread = threading.Thread(target=self.search_worker, args=(search_config,))
         self.search_thread.daemon = True
         self.search_thread.start()
-    
+
     def search_worker(self, config):
         try:
             # Clear history if fresh search
@@ -675,7 +709,6 @@ class YouTubeFinderTkinter:
 
                     self.quota_used += self.youtube_searcher.quota_used
 
-                    # update quota label with color change
                     def _update_quota_label():
                         self.quota_used_label.config(text=f"Current quota used: {self.quota_used}")
                         if warning_limit and self.quota_used >= warning_limit:
@@ -684,7 +717,6 @@ class YouTubeFinderTkinter:
                             self.quota_used_label.config(foreground='black')
                     self.root.after(0, _update_quota_label)
 
-                    # 90 % warning pop-up & auto-stop
                     if warning_limit and self.quota_used >= warning_limit:
                         self.root.after(
                             0,
@@ -694,7 +726,6 @@ class YouTubeFinderTkinter:
                                 'Search will stop to avoid over-use.'))
                         break
 
-                    # Apply filters and deduplication
                     for video in videos:
                         if self.stop_search:
                             break
@@ -712,40 +743,51 @@ class YouTubeFinderTkinter:
                             self.search_stats['skipped'] += 1
                             continue
 
-                        # Apply view filter
+                        # Apply view filter (min/max)
                         view_count = int(video.get('view_count', 0))
-                        if not self.passes_view_filter(view_count, config):
+                        views_min = config.get('views_min')
+                        views_max = config.get('views_max')
+                        if views_min and view_count < int(views_min):
+                            self.search_stats['skipped'] += 1
+                            continue
+                        if views_max and view_count > int(views_max):
                             self.search_stats['skipped'] += 1
                             continue
 
-                        # timeframe view filter
+                        # Time-frame view filter
                         if not passes_timeframe_view_filter(
                                 view_count,
                                 video.get('published_at', ''),
-                                days_back,
-                                min_daily_views):
+                                config.get('days_back', ''),
+                                config.get('min_daily_views', '')):
                             self.search_stats['skipped'] += 1
                             continue
 
-                        # upload-date range filter (post-fetch sanity check)
+                        # Upload-date range filter (post-fetch sanity check)
                         if not passes_upload_date_filter(
                                 video.get('published_at', ''),
-                                upload_date_min,
-                                upload_date_max):
+                                config.get('upload_date_min', ''),
+                                config.get('upload_date_max', '')):
                             self.search_stats['skipped'] += 1
                             continue
 
-                        # Apply subscriber filter
+                        # Apply subscriber filter (min/max)
                         subscriber_count = int(video.get('subscriber_count', 0))
-                        if config['skip_hidden'] and video.get('hidden_subscriber_count', False):
+                        subs_min = config.get('subs_min')
+                        subs_max = config.get('subs_max')
+                        if subs_min and subscriber_count < int(subs_min):
+                            self.search_stats['skipped'] += 1
+                            continue
+                        if subs_max and subscriber_count > int(subs_max):
                             self.search_stats['skipped'] += 1
                             continue
 
-                        if not self.passes_subscriber_filter(subscriber_count, config):
+                        # Skip hidden subscriber counts if needed
+                        if config.get('skip_hidden', True) and video.get('hidden_subscriber_count', False):
                             self.search_stats['skipped'] += 1
                             continue
 
-                        # Add keyword to video data
+                        # Add keyword and duration to video data
                         video['keyword'] = keyword
                         video['duration_minutes'] = duration_minutes
                         all_results.append(video)
@@ -754,7 +796,6 @@ class YouTubeFinderTkinter:
                         # Update stats display
                         self.root.after(0, self.update_stats_display)
 
-                    # Check hard quota limit (absolute stop)
                     if self.quota_used >= config['api_cap']:
                         self.root.after(0, lambda: messagebox.showinfo('Quota Limit',
                                                                     'Daily quota limit reached!'))
@@ -819,7 +860,7 @@ class YouTubeFinderTkinter:
             # Reset date filters
             self.root.after(0, lambda: self.filter_min_date_var.set(''))
             self.root.after(0, lambda: self.filter_max_date_var.set(''))
-    
+
     def passes_duration_filter(self, duration_minutes, config):
         duration_filter = config['duration_filter']
         
@@ -838,7 +879,7 @@ class YouTubeFinderTkinter:
             max_dur = float(duration_max) if duration_max else float('inf')
             return min_dur <= duration_minutes <= max_dur
         return True
-    
+
     def passes_view_filter(self, view_count, config):
         views_min = config['views_min']
         views_max = config['views_max']
@@ -848,7 +889,7 @@ class YouTubeFinderTkinter:
         if views_max and view_count > int(views_max):
             return False
         return True
-    
+
     def passes_subscriber_filter(self, subscriber_count, config):
         subs_min = config['subs_min']
         subs_max = config['subs_max']
@@ -858,83 +899,47 @@ class YouTubeFinderTkinter:
         if subs_max and subscriber_count > int(subs_max):
             return False
         return True
-    
+
     def update_stats_display(self):
         self.scanned_label.config(text=f"Scanned: {self.search_stats['scanned']}")
         self.kept_label.config(text=f"Kept: {self.search_stats['kept']}")
         self.skipped_label.config(text=f"Skipped: {self.search_stats['skipped']}")
-    
-    def update_results_table(self):
-        """Populate (or re-populate) the Tree-view from self.results_df."""
-        for item in self.tree.get_children():
-            self.tree.delete(item)
 
-        if self.results_df.empty:
-            return
+    def update_quota_estimate(self, *args):
+        """Real-time quota estimate based on live keywords & pages."""
+        keywords = self.keywords_text.get("1.0", tk.END).strip()
+        try:
+            pages = int(self.pages_var.get() or '2')
+        except ValueError:
+            pages = 2
 
-        df = self.results_df.copy()
+        est = self.estimate_quota(keywords, pages)
+        self.quota_est_label.config(text=f"Estimated quota: {est}")
 
-        title_kw = self.filter_title_var.get().strip().lower()
-        if title_kw:
-            df = df[df['title'].str.contains(title_kw, na=False, case=False)]
+    def estimate_quota(self, keywords_raw, pages_per_keyword):
+        """Return exact YouTube-API quota cost for the live keywords."""
+        keyword_list = [k.strip() for k in keywords_raw.split('\n') if k.strip()]
+        if not keyword_list:
+            return 0
 
-        # Min total views
-        min_v_str = self.filter_views_var.get().strip()
-        if min_v_str:
-            try:
-                min_v = int(min_v_str)
-                df['view_count'] = pd.to_numeric(df['view_count'], errors='coerce').fillna(0).astype(int)
-                df = df[df['view_count'] >= min_v]
-            except Exception:
-                pass
+        SEARCH_COST   = 100
+        VIDEO_COST    = 1
+        CHANNEL_COST  = 1
 
-        # Subscribers filter
-        min_subs_str = self.filter_subs_var.get().strip()
-        if min_subs_str:
-            try:
-                min_subs = int(min_subs_str)
-                df['subscriber_count'] = pd.to_numeric(df['subscriber_count'], errors='coerce').fillna(0).astype(int)
-                df = df[df['subscriber_count'] >= min_subs]
-            except Exception:
-                pass
+        search_calls  = len(keyword_list) * pages_per_keyword
+        search_quota  = search_calls * SEARCH_COST
+        videos_found  = search_calls * 50 * 0.8
+        video_calls   = max(1, int(videos_found / 50))
+        video_quota   = video_calls * VIDEO_COST
+        channel_quota = video_calls * CHANNEL_COST
 
-        min_date_str = self.filter_min_date_var.get().strip()
-        max_date_str = self.filter_max_date_var.get().strip()
+        return search_quota + video_quota + channel_quota
 
-        if min_date_str or max_date_str:
-            df['published_at'] = pd.to_datetime(
-                df['published_at'], errors='coerce', utc=True).dt.tz_localize(None)
-
-            if min_date_str:
-                min_dt = pd.to_datetime(min_date_str)
-                df = df[df['published_at'] >= min_dt]
-
-            if max_date_str:
-                max_dt = pd.to_datetime(max_date_str) + pd.Timedelta(days=1)
-                df = df[df['published_at'] < max_dt]
-
-        for _, row in df.iterrows():
-            title = row['title'][:50] + '...' if len(row['title']) > 50 else row['title']
-            desc  = row['description'][:60] + '...' if len(row['description']) > 60 else row['description']
-            tags  = row['tags'][:40] + '...' if len(row['tags']) > 40 else row['tags']
-            self.tree.insert('', tk.END, values=(
-                title,
-                f"{int(row['subscriber_count']):,}",
-                f"{int(row['view_count']):,}",
-                f"{int(row['likes']):,}",
-                str(row['published_at'])[:10],
-                format_duration(row['duration_minutes']),
-                row['channel_title'],
-                row['keyword'],
-                desc,
-                tags
-            ))
-    
     def stop_search_func(self):
         self.stop_search = True
         self.start_button.config(state='normal')
         self.stop_button.config(state='disabled')
-    
+
     def open_video(self):
         selection = self.tree.selection()
         if selection:
@@ -944,7 +949,7 @@ class YouTubeFinderTkinter:
                 if self.tree.item(item, 'values')[0] == title:
                     webbrowser.open(row['video_url'])
                     break
-    
+
     def open_channel(self):
         selection = self.tree.selection()
         if selection:
@@ -955,7 +960,7 @@ class YouTubeFinderTkinter:
                     channel_url = f"https://www.youtube.com/channel/{row['channel_id']}"
                     webbrowser.open(channel_url)
                     break
-    
+
     def export_results(self):
         if self.results_df.empty:
             messagebox.showwarning('No Data', 'No results to export!')
@@ -973,7 +978,7 @@ class YouTubeFinderTkinter:
                 messagebox.showinfo('Export Complete', f'Results exported to: {filename}')
             except Exception as e:
                 messagebox.showerror('Export Error', f'Failed to export results: {str(e)}')
-    
+
     def save_schedule(self):
         settings = self.get_current_settings()
 
@@ -999,7 +1004,7 @@ class YouTubeFinderTkinter:
                 messagebox.showinfo('Schedule Saved', 'Settings saved (no daily schedule).')
         else:
             messagebox.showerror('Save Error', 'Could not save settings!')
-    
+
     def get_current_settings(self):
         return {
             'keywords': self.keywords_text.get("1.0", tk.END).strip(),
@@ -1024,7 +1029,7 @@ class YouTubeFinderTkinter:
             'skip_hidden': self.skip_hidden_var.get(),
             'fresh_search': self.fresh_search_var.get()
         }
-    
+
     def load_settings(self):
         settings = self.config_manager.load_settings()
         
@@ -1053,7 +1058,7 @@ class YouTubeFinderTkinter:
         
         self.on_duration_change()
         self.update_quota_estimate()
-    
+
     def run(self):
         self.root.mainloop()
 
