@@ -318,9 +318,9 @@ class YouTubeFinderTkinter:
         ttk.Entry(filter_frame, textvariable=self.filter_views_var, width=8) \
             .grid(row=0, column=col, padx=(0, 8)); col += 1
 
-        ttk.Label(filter_frame, text="Min Daily:").grid(row=0, column=col); col += 1
-        self.filter_daily_var = tk.StringVar()
-        ttk.Entry(filter_frame, textvariable=self.filter_daily_var, width=8) \
+        ttk.Label(filter_frame, text="Subscribers:").grid(row=0, column=col); col += 1
+        self.filter_subs_var = tk.StringVar()
+        ttk.Entry(filter_frame, textvariable=self.filter_subs_var, width=8) \
             .grid(row=0, column=col, padx=(0, 8)); col += 1
 
         ttk.Label(filter_frame, text="From:").grid(row=0, column=col); col += 1
@@ -336,7 +336,7 @@ class YouTubeFinderTkinter:
             .grid(row=0, column=col); col += 1
 
         for v in (self.filter_title_var, self.filter_views_var,
-                self.filter_daily_var, self.filter_min_date_var,
+                self.filter_subs_var, self.filter_min_date_var,
                 self.filter_max_date_var):
             v.trace_add('write', self.on_filter_change)
 
@@ -467,22 +467,24 @@ class YouTubeFinderTkinter:
             df = df[df['title'].str.contains(title_kw, na=False, case=False)]
 
         # Min total views
-        try:
-            min_v = int(self.filter_views_var.get().strip())
-            df = df[df['view_count'] >= min_v]
-        except ValueError:
-            pass
+        min_v_str = self.filter_views_var.get().strip()
+        if min_v_str:
+            try:
+                min_v = int(min_v_str)
+                df['view_count'] = pd.to_numeric(df['view_count'], errors='coerce').fillna(0).astype(int)
+                df = df[df['view_count'] >= min_v]
+            except Exception:
+                pass
 
-        # Min daily views
-        try:
-            min_daily = float(self.filter_daily_var.get().strip())
-            df['published_at'] = pd.to_datetime(
-                df['published_at'], errors='coerce', utc=True).dt.tz_localize(None)
-            now = pd.Timestamp.utcnow().tz_localize(None)
-            df['age_days'] = (now - df['published_at']).dt.days.clip(lower=1)
-            df = df[df['view_count'] / df['age_days'] >= min_daily]
-        except ValueError:
-            pass
+        # Subscribers filter
+        min_subs_str = self.filter_subs_var.get().strip()
+        if min_subs_str:
+            try:
+                min_subs = int(min_subs_str)
+                df['subscriber_count'] = pd.to_numeric(df['subscriber_count'], errors='coerce').fillna(0).astype(int)
+                df = df[df['subscriber_count'] >= min_subs]
+            except Exception:
+                pass
 
         # Upload-date range filters
         min_date_str = self.filter_min_date_var.get().strip()
@@ -876,20 +878,25 @@ class YouTubeFinderTkinter:
         if title_kw:
             df = df[df['title'].str.contains(title_kw, na=False, case=False)]
 
-        try:
-            min_v = int(self.filter_views_var.get().strip())
-            df = df[df['view_count'] >= min_v]
-        except ValueError:
-            pass
+        # Min total views
+        min_v_str = self.filter_views_var.get().strip()
+        if min_v_str:
+            try:
+                min_v = int(min_v_str)
+                df['view_count'] = pd.to_numeric(df['view_count'], errors='coerce').fillna(0).astype(int)
+                df = df[df['view_count'] >= min_v]
+            except Exception:
+                pass
 
-        try:
-            min_daily = float(self.filter_daily_var.get().strip())
-            df['published_at'] = pd.to_datetime(df['published_at'], errors='coerce', utc=True).dt.tz_localize(None)
-            now = pd.Timestamp.utcnow().tz_localize(None)
-            df['age_days'] = (now - df['published_at']).dt.days.clip(lower=1)
-            df = df[df['view_count'] / df['age_days'] >= min_daily]
-        except ValueError:
-            pass
+        # Subscribers filter
+        min_subs_str = self.filter_subs_var.get().strip()
+        if min_subs_str:
+            try:
+                min_subs = int(min_subs_str)
+                df['subscriber_count'] = pd.to_numeric(df['subscriber_count'], errors='coerce').fillna(0).astype(int)
+                df = df[df['subscriber_count'] >= min_subs]
+            except Exception:
+                pass
 
         min_date_str = self.filter_min_date_var.get().strip()
         max_date_str = self.filter_max_date_var.get().strip()
