@@ -348,18 +348,23 @@ class YouTubeFinderTkinter:
         # Treeview with the **correct** columns and order
         self.tree = ttk.Treeview(
             table_frame,
-            columns=('Title', 'Channel', 'Views', 'Subscribers', 'Likes',
-                'Duration', 'Published', 'Keyword', 'Description', 'Tags'),
+            columns=('Title', 'Subscribers', 'Views', 'Likes', 'Published',
+                'Duration', 'Channel', 'Keyword', 'Description', 'Tags'),
             show='headings',
             height=15
         )
 
         cols = [
-            ('Title', 300), ('Channel', 150), ('Views', 100, int),
+            ('Title', 300),
             ('Subscribers', 100, int),
+            ('Views', 100, int),
             ('Likes', 100, int),
-            ('Duration', 80), ('Published', 100, 'date'),
-            ('Keyword', 120), ('Description', 250), ('Tags', 200)
+            ('Published', 100, 'date'),
+            ('Duration', 80),
+            ('Channel', 150),
+            ('Keyword', 120),
+            ('Description', 250),
+            ('Tags', 200)
         ]
         for col, w, *typ in cols:
             self.tree.heading(
@@ -503,12 +508,12 @@ class YouTubeFinderTkinter:
             tags  = row['tags'][:40] + '...' if len(row['tags']) > 40 else row['tags']
             self.tree.insert('', tk.END, values=(
                 title,
-                row['channel_title'],
-                f"{int(row['view_count']):,}",
                 f"{int(row['subscriber_count']):,}",
+                f"{int(row['view_count']):,}",
                 f"{int(row['likes']):,}",
-                format_duration(row['duration_minutes']),
                 str(row['published_at'])[:10],
+                format_duration(row['duration_minutes']),
+                row['channel_title'],
                 row['keyword'],
                 desc,
                 tags
@@ -907,12 +912,12 @@ class YouTubeFinderTkinter:
             tags  = row['tags'][:40] + '...' if len(row['tags']) > 40 else row['tags']
             self.tree.insert('', tk.END, values=(
                 title,
-                row['channel_title'],
-                f"{int(row['view_count']):,}",
                 f"{int(row['subscriber_count']):,}",
+                f"{int(row['view_count']):,}",
                 f"{int(row['likes']):,}",
-                format_duration(row['duration_minutes']),
                 str(row['published_at'])[:10],
+                format_duration(row['duration_minutes']),
+                row['channel_title'],
                 row['keyword'],
                 desc,
                 tags
