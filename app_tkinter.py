@@ -280,19 +280,19 @@ class YouTubeFinderTkinter:
         status_frame = ttk.LabelFrame(parent, text="Status", padding="5")
         status_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         parent.columnconfigure(0, weight=1)
-        
+
         self.quota_est_label = ttk.Label(status_frame, text="Estimated quota for this run: 0")
         self.quota_est_label.grid(row=0, column=0, sticky=tk.W)
-        
+
         self.quota_used_label = ttk.Label(status_frame, text="Current quota used: 0")
         self.quota_used_label.grid(row=1, column=0, sticky=tk.W)
-        
+
         # Progress bar
         self.progress_var = tk.DoubleVar()
         self.progress_bar = ttk.Progressbar(status_frame, variable=self.progress_var, maximum=100)
         self.progress_bar.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=5)
         status_frame.columnconfigure(0, weight=1)
-        
+
         # Stats
         stats_frame = ttk.Frame(status_frame)
         stats_frame.grid(row=3, column=0, sticky=(tk.W, tk.E))
@@ -302,8 +302,8 @@ class YouTubeFinderTkinter:
         self.kept_label.grid(row=0, column=1, padx=(0, 10))
         self.skipped_label = ttk.Label(stats_frame, text="Skipped: 0")
         self.skipped_label.grid(row=0, column=2)
-        
-        # FILTER BAR (above the table)
+
+        # FILTER BAR
         filter_frame = ttk.LabelFrame(parent, text="Filters", padding="5")
         filter_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
 
@@ -323,83 +323,76 @@ class YouTubeFinderTkinter:
         ttk.Entry(filter_frame, textvariable=self.filter_daily_var, width=8) \
             .grid(row=0, column=col, padx=(0, 8)); col += 1
 
-        # ---- NEW: upload-date pickers ----
         ttk.Label(filter_frame, text="From:").grid(row=0, column=col); col += 1
         self.filter_min_date_var = tk.StringVar()
         DateEntry(filter_frame, textvariable=self.filter_min_date_var,
-                  date_pattern='yyyy-mm-dd', width=10) \
+                date_pattern='yyyy-mm-dd', width=10) \
             .grid(row=0, column=col, padx=(0, 8)); col += 1
 
         ttk.Label(filter_frame, text="To:").grid(row=0, column=col); col += 1
         self.filter_max_date_var = tk.StringVar()
         DateEntry(filter_frame, textvariable=self.filter_max_date_var,
-                  date_pattern='yyyy-mm-dd', width=10) \
+                date_pattern='yyyy-mm-dd', width=10) \
             .grid(row=0, column=col); col += 1
 
-        # trace all for live filtering
         for v in (self.filter_title_var, self.filter_views_var,
-                  self.filter_daily_var, self.filter_min_date_var,
-                  self.filter_max_date_var):
+                self.filter_daily_var, self.filter_min_date_var,
+                self.filter_max_date_var):
             v.trace_add('write', self.on_filter_change)
-        
+
         # Results table
         table_frame = ttk.Frame(parent)
         table_frame.grid(row=2, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         parent.rowconfigure(2, weight=1)
-        
-        # Treeview with scrollbars
-        self.tree = ttk.Treeview(table_frame, columns=('Title', 'Channel', 'Views', 'Subscribers', 'Reviews',
-         'Duration', 'Published', 'Keyword', 'Description', 'Tags'), show='headings', height=15)
-        
-        # Tree-view with full columns
+
+        # Treeview with the **correct** columns and order
         self.tree = ttk.Treeview(
             table_frame,
-            columns=('Title', 'Channel', 'Views', 'Subscribers', 'Reviews',
+            columns=('Title', 'Channel', 'Views', 'Subscribers', 'Likes',
                 'Duration', 'Published', 'Keyword', 'Description', 'Tags'),
             show='headings',
-            height=15)
+            height=15
+        )
 
-        # Column specs
         cols = [
-                ('Title', 300), ('Channel', 150), ('Views', 100, int),
-                ('Subscribers', 100, int),
-                ('Reviews', 100),
-                ('Duration', 80), ('Published', 100, 'date'),
-                ('Keyword', 120), ('Description', 250), ('Tags', 200)
-            ]
+            ('Title', 300), ('Channel', 150), ('Views', 100, int),
+            ('Subscribers', 100, int),
+            ('Likes', 100, int),
+            ('Duration', 80), ('Published', 100, 'date'),
+            ('Keyword', 120), ('Description', 250), ('Tags', 200)
+        ]
         for col, w, *typ in cols:
             self.tree.heading(
                 col,
                 text=col,
                 command=lambda c=col, t=typ[0] if typ else 'str': self.sort_column(c, t))
             self.tree.column(col, width=w)
-        
+
         # Scrollbars
         v_scrollbar = ttk.Scrollbar(table_frame, orient=tk.VERTICAL, command=self.tree.yview)
         h_scrollbar = ttk.Scrollbar(table_frame, orient=tk.HORIZONTAL, command=self.tree.xview)
         self.tree.configure(yscrollcommand=v_scrollbar.set, xscrollcommand=h_scrollbar.set)
-        
-        # Grid layout
+
         self.tree.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         v_scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
         h_scrollbar.grid(row=1, column=0, sticky=(tk.W, tk.E))
-        
+
         table_frame.columnconfigure(0, weight=1)
         table_frame.rowconfigure(0, weight=1)
-        
+
         # Action buttons
         action_frame = ttk.Frame(parent)
         action_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
-        
+
         self.open_video_button = ttk.Button(action_frame, text="Open Video", command=self.open_video, state='disabled')
         self.open_video_button.grid(row=0, column=0, padx=(0, 5))
-        
+
         self.open_channel_button = ttk.Button(action_frame, text="Open Channel", command=self.open_channel, state='disabled')
         self.open_channel_button.grid(row=0, column=1, padx=(0, 5))
-        
+
         self.export_button = ttk.Button(action_frame, text="Export Results", command=self.export_results, state='disabled')
         self.export_button.grid(row=0, column=2)
-        
+
         # Bind tree selection
         self.tree.bind('<<TreeviewSelect>>', self.on_tree_select)
     
@@ -513,7 +506,7 @@ class YouTubeFinderTkinter:
                 row['channel_title'],
                 f"{int(row['view_count']):,}",
                 f"{int(row['subscriber_count']):,}",
-                row.get('reviews', ''),
+                f"{int(row['likes']):,}",
                 format_duration(row['duration_minutes']),
                 str(row['published_at'])[:10],
                 row['keyword'],
@@ -917,7 +910,7 @@ class YouTubeFinderTkinter:
                 row['channel_title'],
                 f"{int(row['view_count']):,}",
                 f"{int(row['subscriber_count']):,}",
-                row.get('reviews', ''),
+                f"{int(row['likes']):,}",
                 format_duration(row['duration_minutes']),
                 str(row['published_at'])[:10],
                 row['keyword'],

@@ -204,21 +204,18 @@ class YouTubeSearcher:
         return channel_info
     
     def _parse_video_item(self, item):
-        """Parse a video item from the API response"""
+        """Parse a video item from the API response and return a dict."""
         try:
             video_id = item['id']
             snippet = item['snippet']
             statistics = item.get('statistics', {})
             content_details = item.get('contentDetails', {})
-            
+
             # Parse duration
             duration_iso = content_details.get('duration', 'PT0S')
-            try:
-                duration = isodate.parse_duration(duration_iso)
-                duration_minutes = duration.total_seconds() / 60
-            except Exception:
-                duration_minutes = 0
-            
+            duration_minutes = parse_duration_minutes(duration_iso)
+
+            # Build the dict
             video_data = {
                 'video_id': video_id,
                 'video_url': f'https://www.youtube.com/watch?v={video_id}',
@@ -229,18 +226,17 @@ class YouTubeSearcher:
                 'channel_id': snippet.get('channelId', ''),
                 'published_at': snippet.get('publishedAt', ''),
                 'view_count': int(statistics.get('viewCount', 0)),
+                'likes': int(statistics.get('likeCount', 0)),
                 'duration': duration_iso,
-                'duration_minutes': duration_minutes
+                'duration_minutes': duration_minutes,
+                'subscriber_count': 0,  # will be filled later
+                'hidden_subscriber_count': False
             }
-            # NEW: keep subscriber data inside each video dict
-            video_data['subscriber_count'] = 0  # will be overwritten later
-            video_data['hidden_subscriber_count'] = False
-                        
             return video_data
-            
+
         except Exception as e:
-            print(f"Error parsing video item: {str(e)}")
-            return None
+            print(f"Skipping malformed video item: {e}")
+            return None   # caller ignores None
     
     def _get_duration_param(self, duration_filter):
         """Convert duration filter to API parameter"""
