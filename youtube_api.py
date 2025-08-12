@@ -84,6 +84,7 @@ class YouTubeSearcher:
                 channel_info = self._get_channel_details(channel_ids, quota_limit - self.quota_used)
 
                 # Merge channel info with video details
+                # Merge channel info with video details
                 for video in video_details:
                     channel_data = channel_info.get(video['channel_id'], {})
                     video.update(channel_data)
@@ -231,7 +232,10 @@ class YouTubeSearcher:
                 'duration': duration_iso,
                 'duration_minutes': duration_minutes
             }
-            
+            # NEW: keep subscriber data inside each video dict
+            video_data['subscriber_count'] = 0  # will be overwritten later
+            video_data['hidden_subscriber_count'] = False
+                        
             return video_data
             
         except Exception as e:

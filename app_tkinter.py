@@ -348,22 +348,25 @@ class YouTubeFinderTkinter:
         parent.rowconfigure(2, weight=1)
         
         # Treeview with scrollbars
-        self.tree = ttk.Treeview(table_frame, columns=('Title', 'Channel', 'Views', 'Duration', 'Published', 'Keyword','Description', 'Tags'), show='headings', height=15)
+        self.tree = ttk.Treeview(table_frame, columns=('Title', 'Channel', 'Views', 'Subscribers', 'Reviews',
+         'Duration', 'Published', 'Keyword', 'Description', 'Tags'), show='headings', height=15)
         
         # Tree-view with full columns
         self.tree = ttk.Treeview(
             table_frame,
-            columns=('Title', 'Channel', 'Views', 'Duration', 'Published', 'Keyword',
-                     'Description', 'Tags'),
+            columns=('Title', 'Channel', 'Views', 'Subscribers', 'Reviews',
+                'Duration', 'Published', 'Keyword', 'Description', 'Tags'),
             show='headings',
             height=15)
 
         # Column specs
         cols = [
-            ('Title', 300), ('Channel', 150), ('Views', 100, int),
-            ('Duration', 80), ('Published', 100, 'date'),
-            ('Keyword', 120), ('Description', 250), ('Tags', 200)
-        ]
+                ('Title', 300), ('Channel', 150), ('Views', 100, int),
+                ('Subscribers', 100, int),
+                ('Reviews', 100),
+                ('Duration', 80), ('Published', 100, 'date'),
+                ('Keyword', 120), ('Description', 250), ('Tags', 200)
+            ]
         for col, w, *typ in cols:
             self.tree.heading(
                 col,
@@ -509,6 +512,8 @@ class YouTubeFinderTkinter:
                 title,
                 row['channel_title'],
                 f"{int(row['view_count']):,}",
+                f"{int(row['subscriber_count']):,}",
+                row.get('reviews', ''),
                 format_duration(row['duration_minutes']),
                 str(row['published_at'])[:10],
                 row['keyword'],
@@ -911,6 +916,8 @@ class YouTubeFinderTkinter:
                 title,
                 row['channel_title'],
                 f"{int(row['view_count']):,}",
+                f"{int(row['subscriber_count']):,}",
+                row.get('reviews', ''),
                 format_duration(row['duration_minutes']),
                 str(row['published_at'])[:10],
                 row['keyword'],
