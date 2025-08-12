@@ -3,6 +3,9 @@ import os
 import yaml
 from datetime import datetime
 
+# NEW: Import get_api_key
+from api_key_manager import get_api_key
+
 class ConfigManager:
     def __init__(self):
         self.settings_file = 'settings.json'
@@ -198,11 +201,13 @@ class ConfigManager:
     def get_api_key_info(self):
         """Get information about the API key configuration"""
         api_key = os.getenv('YOUTUBE_API_KEY', '')
+        if not api_key:
+            api_key = get_api_key()
         
         if not api_key:
             return {
                 'configured': False,
-                'message': 'YouTube API Key not set. Please set YOUTUBE_API_KEY environment variable.'
+                'message': 'YouTube API Key not set. Please set YOUTUBE_API_KEY environment variable or add it via the app Settings.'
             }
         
         # Mask the key for display

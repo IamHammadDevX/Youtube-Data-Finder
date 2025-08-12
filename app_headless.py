@@ -9,6 +9,8 @@ from csv_handler import CSVHandler
 from utils import parse_duration_minutes, validate_api_key, passes_timeframe_view_filter, quota_warning_threshold, passes_upload_date_filter
 from datetime import datetime, timedelta        # NEW: timedelta for auto-clear
 
+# NEW: Import get_api_key from api_key_manager
+from api_key_manager import get_api_key
 
 class HeadlessYouTubeSearcher:
     def __init__(self, settings_file):
@@ -22,7 +24,10 @@ class HeadlessYouTubeSearcher:
         # Initialize API
         api_key = os.getenv('YOUTUBE_API_KEY', '')
         if not api_key:
-            print('ERROR: YouTube API Key not found! Please set YOUTUBE_API_KEY environment variable.')
+            # Try apikey.json
+            api_key = get_api_key()
+        if not api_key:
+            print('ERROR: YouTube API Key not found! Please set YOUTUBE_API_KEY environment variable or create apikey.json.')
             sys.exit(1)
         
         if not validate_api_key(api_key):

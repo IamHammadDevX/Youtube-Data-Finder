@@ -1,5 +1,5 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, scrolledtext, filedialog
+from tkinter import ttk, messagebox, scrolledtext, filedialog, simpledialog
 import pandas as pd
 import os
 import json
@@ -12,6 +12,8 @@ from csv_handler import CSVHandler
 from config_manager import ConfigManager
 from utils import format_duration, parse_duration_minutes, validate_api_key, passes_timeframe_view_filter, quota_warning_threshold, passes_upload_date_filter
 from tkcalendar import DateEntry
+# Import API key manager
+from api_key_manager import get_api_key, set_api_key
 
 class YouTubeFinderTkinter:
     def __init__(self):
@@ -19,66 +21,103 @@ class YouTubeFinderTkinter:
         self.root.title("YouTube Finder")
         self.root.geometry("1400x800")
         self.root.configure(bg='#f0f0f0')
-        
+
+        # Add menu bar with Settings -> API Key...
+        menubar = tk.Menu(self.root)
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        settings_menu.add_command(label="API Key...", command=self.show_settings_dialog)
+        menubar.add_cascade(label="Settings", menu=settings_menu)
+        self.root.config(menu=menubar)
+
         # Initialize components
         self.config_manager = ConfigManager()
         self.csv_handler = CSVHandler()
         self.youtube_searcher = None
         self.search_thread = None
         self.stop_search = False
-        
-        # Initialize API key
-        api_key = os.getenv('YOUTUBE_API_KEY', '')
-        if not api_key:
-            messagebox.showerror('API Key Error', 
-                               'YouTube API Key not found!\nPlease set YOUTUBE_API_KEY environment variable.')
-            self.root.quit()
-            return
-        
+
+        # API key prompt if missing
+        api_key = self.check_and_prompt_api_key()
         if not validate_api_key(api_key):
             messagebox.showerror('API Key Error', 
-                               'Invalid YouTube API Key format!\nPlease check your YOUTUBE_API_KEY environment variable.')
+                               'Invalid YouTube API Key format!\nPlease check your API key in Settings.')
             self.root.quit()
             return
-            
+
         self.youtube_searcher = YouTubeSearcher(api_key)
         self.history_keep_days_var = tk.StringVar()
         self.history_keep_days_var.set(str(self.config_manager.load_settings().get('history_keep_days', '')))
         self.schedule_time_var = tk.StringVar()
         self.schedule_enabled_var = tk.BooleanVar()
-        
+
         # UI State
         self.results_df = pd.DataFrame()
         self.quota_used = 0
         self.search_stats = {'scanned': 0, 'kept': 0, 'skipped': 0}
-        
+
         # Create directories
         os.makedirs('data', exist_ok=True)
         os.makedirs('export', exist_ok=True)
         os.makedirs('logs', exist_ok=True)
-        
+
         # Create UI
         self.create_widgets()
         self.load_settings()
-        
+
+    def show_settings_dialog(self):
+        """Show a dialog to view/change the API key."""
+        current_key = get_api_key()
+        new_key = simpledialog.askstring(
+            "YouTube API Key",
+            "Enter your YouTube Data API Key:",
+            initialvalue=current_key,
+            show=None
+        )
+        if new_key is not None:
+            if len(new_key.strip()) == 0:
+                messagebox.showwarning("API Key", "API Key cannot be empty!")
+            else:
+                set_api_key(new_key)
+                # Re-initialize API in case key was updated
+                if validate_api_key(new_key):
+                    self.youtube_searcher = YouTubeSearcher(new_key)
+                    messagebox.showinfo("API Key", "API Key has been saved and applied.")
+                else:
+                    messagebox.showerror("API Key", "Invalid API Key format! Please check and re-enter.")
+
+    def check_and_prompt_api_key(self):
+        """Prompt for API key on startup if not set."""
+        key = get_api_key()
+        while not key:
+            key = simpledialog.askstring(
+                "YouTube API Key Required",
+                "Please enter your YouTube Data API Key to continue:",
+                show=None
+            )
+            if key:
+                set_api_key(key)
+            else:
+                messagebox.showerror("API Key Required", "You must provide an API key to use this program.")
+        return key
+
     def create_widgets(self):
         # Main container
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        
+
         # Left panel - Controls
         left_frame = ttk.LabelFrame(main_frame, text="Search Controls", padding="10")
         left_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
-        
+
         # Right panel - Status and Results
         right_frame = ttk.LabelFrame(main_frame, text="Results", padding="10")
         right_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
-        
+
         main_frame.columnconfigure(1, weight=1)
         main_frame.rowconfigure(0, weight=1)
-        
+
         self.create_left_panel(left_frame)
         self.create_right_panel(right_frame)
         
