@@ -14,6 +14,7 @@ from utils import format_duration, parse_duration_minutes, validate_api_key, pas
 from tkcalendar import DateEntry
 # Import API key manager
 from api_key_manager import get_api_key, set_api_key
+from api_key_dialog import get_api_key_dialog
 
 class YouTubeFinderTkinter:
     def __init__(self):
@@ -65,20 +66,13 @@ class YouTubeFinderTkinter:
         self.load_settings()
 
     def show_settings_dialog(self):
-        """Show a dialog to view/change the API key."""
         current_key = get_api_key()
-        new_key = simpledialog.askstring(
-            "YouTube API Key",
-            "Enter your YouTube Data API Key:",
-            initialvalue=current_key,
-            show=None
-        )
+        new_key = get_api_key_dialog(self.root, current_key)
         if new_key is not None:
             if len(new_key.strip()) == 0:
                 messagebox.showwarning("API Key", "API Key cannot be empty!")
             else:
                 set_api_key(new_key)
-                # Re-initialize API in case key was updated
                 if validate_api_key(new_key):
                     self.youtube_searcher = YouTubeSearcher(new_key)
                     messagebox.showinfo("API Key", "API Key has been saved and applied.")
@@ -311,6 +305,11 @@ class YouTubeFinderTkinter:
 
         self.keywords_text.bind('<KeyRelease>', self.update_quota_estimate)
         self.pages_var.trace_add('write', self.update_quota_estimate)
+    
+    def clear_history_now(self):
+        """Immediately wipe the history file and refresh UI."""
+        self.csv_handler.clear_history_now()
+        messagebox.showinfo("History", "View history has been cleared.")
         
     def create_right_panel(self, parent):
         # Status section
