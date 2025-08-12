@@ -1,5 +1,5 @@
 {
-  "keywords": "Agentic Rag\nOpen AI",
+  "keywords": "",
   "duration": "Any",
   "duration_min": "",
   "duration_max": "",
@@ -14,8 +14,8 @@
   "schedule_enabled": true,
   "upload_date_min": "",
   "upload_date_max": "",
-  "region": "",
-  "language": "",
+  "region": "us",
+  "language": "en",
   "pages": "1",
   "api_cap": "9500",
   "skip_hidden": true,
