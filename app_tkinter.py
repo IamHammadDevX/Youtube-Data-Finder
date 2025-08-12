@@ -383,8 +383,8 @@ class YouTubeFinderTkinter:
 
         self.tree = ttk.Treeview(
             table_frame,
-            columns=('Title', 'Subscribers', 'Views', 'Likes', 'Published',
-                'Duration', 'Channel', 'Keyword', 'Description', 'Tags'),
+            columns=('Title', 'Subscribers', 'Views', 'Comments', 'Likes',
+                'Published', 'Duration', 'Channel', 'Keyword', 'Description', 'Tags'),
             show='headings',
             height=15
         )
@@ -393,6 +393,7 @@ class YouTubeFinderTkinter:
             ('Title', 300),
             ('Subscribers', 100, int),
             ('Views', 100, int),
+            ('Comments', 100, int),     # NEW
             ('Likes', 100, int),
             ('Published', 100, 'date'),
             ('Duration', 80),
@@ -547,6 +548,7 @@ class YouTubeFinderTkinter:
                 title,
                 f"{int(row['subscriber_count']):,}",
                 f"{int(row['view_count']):,}",
+                f"{int(row['comments']):,}",   # NEW
                 f"{int(row['likes']):,}",
                 str(row['published_at'])[:10],
                 format_duration(row['duration_minutes']),
@@ -613,6 +615,7 @@ class YouTubeFinderTkinter:
                 title,
                 f"{int(row['subscriber_count']):,}",
                 f"{int(row['view_count']):,}",
+                f"{int(row['comments']):,}",   # NEW
                 f"{int(row['likes']):,}",
                 str(row['published_at'])[:10],
                 format_duration(row['duration_minutes']),

@@ -226,10 +226,11 @@ class YouTubeSearcher:
                 'channel_id': snippet.get('channelId', ''),
                 'published_at': snippet.get('publishedAt', ''),
                 'view_count': int(statistics.get('viewCount', 0)),
+                'comments': int(statistics.get('commentCount', 0)),   # NEW
                 'likes': int(statistics.get('likeCount', 0)),
                 'duration': duration_iso,
                 'duration_minutes': duration_minutes,
-                'subscriber_count': 0,  # will be filled later
+                'subscriber_count': 0,
                 'hidden_subscriber_count': False
             }
             return video_data

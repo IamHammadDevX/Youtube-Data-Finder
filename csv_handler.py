@@ -20,7 +20,7 @@ class CSVHandler:
             required_columns = [
                 'title', 'description', 'tags', 'video_url', 'video_id',
                 'channel_title', 'channel_id', 'subscriber_count', 'view_count',
-                'duration_minutes', 'published_at', 'keyword', 'likes'
+                'comments', 'likes', 'duration_minutes', 'published_at', 'keyword'
             ]
             
             # Add missing columns with default values
