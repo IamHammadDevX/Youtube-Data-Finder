@@ -216,10 +216,17 @@ class YouTubeFinderTkinter:
         max_entry = DateEntry(date_frame, textvariable=self.upload_max_var,
                               date_pattern='yyyy-mm-dd', width=12)
         max_entry.grid(row=0, column=3, padx=(3, 0))
+        # --- Add Clear button ---
+        def clear_dates():
+            self.upload_min_var.set('')
+            self.upload_max_var.set('')
+
+        clear_btn = ttk.Button(date_frame, text="Clear", command=clear_dates)
+        clear_btn.grid(row=0, column=4, padx=(10, 0))
+
 
         # Allow clearing with backspace / delete
-        for entry, var in ((min_entry, self.upload_min_var),
-                           (max_entry, self.upload_max_var)):
+        for entry, var in ((min_entry, self.upload_min_var), (max_entry, self.upload_max_var)):
             entry.bind('<KeyRelease>', lambda e, v=var: v.set('') if e.widget.get().strip() == '' else None)
 
         row += 1
