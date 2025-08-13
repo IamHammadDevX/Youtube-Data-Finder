@@ -12,7 +12,6 @@ from csv_handler import CSVHandler
 from config_manager import ConfigManager
 from utils import format_duration, parse_duration_minutes, validate_api_key, passes_timeframe_view_filter, quota_warning_threshold, passes_upload_date_filter
 from tkcalendar import DateEntry
-# Import API key manager
 from api_key_manager import get_api_key, set_api_key
 from api_key_dialog import get_api_key_dialog
 
@@ -23,21 +22,18 @@ class YouTubeFinderTkinter:
         self.root.geometry("1400x800")
         self.root.configure(bg='#f0f0f0')
 
-        # Add menu bar with Settings -> API Key...
         menubar = tk.Menu(self.root)
         settings_menu = tk.Menu(menubar, tearoff=0)
         settings_menu.add_command(label="API Key...", command=self.show_settings_dialog)
         menubar.add_cascade(label="Settings", menu=settings_menu)
         self.root.config(menu=menubar)
 
-        # Initialize components
         self.config_manager = ConfigManager()
         self.csv_handler = CSVHandler()
         self.youtube_searcher = None
         self.search_thread = None
         self.stop_search = False
 
-        # API key prompt if missing
         api_key = self.check_and_prompt_api_key()
         if not validate_api_key(api_key):
             messagebox.showerror('API Key Error', 
@@ -51,17 +47,14 @@ class YouTubeFinderTkinter:
         self.schedule_time_var = tk.StringVar()
         self.schedule_enabled_var = tk.BooleanVar()
 
-        # UI State
         self.results_df = pd.DataFrame()
         self.quota_used = 0
         self.search_stats = {'scanned': 0, 'kept': 0, 'skipped': 0}
 
-        # Create directories
         os.makedirs('data', exist_ok=True)
         os.makedirs('export', exist_ok=True)
         os.makedirs('logs', exist_ok=True)
 
-        # Create UI
         self.create_widgets()
         self.load_settings()
 
@@ -80,7 +73,6 @@ class YouTubeFinderTkinter:
                     messagebox.showerror("API Key", "Invalid API Key format! Please check and re-enter.")
 
     def check_and_prompt_api_key(self):
-        """Prompt for API key on startup if not set."""
         key = get_api_key()
         while not key:
             key = simpledialog.askstring(
@@ -95,17 +87,14 @@ class YouTubeFinderTkinter:
         return key
 
     def create_widgets(self):
-        # Main container
         main_frame = ttk.Frame(self.root, padding="10")
         main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
 
-        # Left panel - Controls
         left_frame = ttk.LabelFrame(main_frame, text="Search Controls", padding="10")
         left_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
 
-        # Right panel - Status and Results
         right_frame = ttk.LabelFrame(main_frame, text="Results", padding="10")
         right_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
 
@@ -312,7 +301,6 @@ class YouTubeFinderTkinter:
         messagebox.showinfo("History", "View history has been cleared.")
         
     def create_right_panel(self, parent):
-        # Status section
         status_frame = ttk.LabelFrame(parent, text="Status", padding="5")
         status_frame.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         parent.columnconfigure(0, weight=1)
@@ -323,15 +311,18 @@ class YouTubeFinderTkinter:
         self.quota_used_label = ttk.Label(status_frame, text="Current quota used: 0")
         self.quota_used_label.grid(row=1, column=0, sticky=tk.W)
 
-        # Progress bar
+        # Daily quota stats
+        quota_today, searches_today = self.get_today_stats()
+        self.daily_quota_label = ttk.Label(status_frame, text=f"Today's quota used: {quota_today} (searches: {searches_today})")
+        self.daily_quota_label.grid(row=2, column=0, sticky=tk.W)
+
         self.progress_var = tk.DoubleVar()
         self.progress_bar = ttk.Progressbar(status_frame, variable=self.progress_var, maximum=100)
-        self.progress_bar.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=5)
+        self.progress_bar.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=5)
         status_frame.columnconfigure(0, weight=1)
 
-        # Stats
         stats_frame = ttk.Frame(status_frame)
-        stats_frame.grid(row=3, column=0, sticky=(tk.W, tk.E))
+        stats_frame.grid(row=4, column=0, sticky=(tk.W, tk.E))
         self.scanned_label = ttk.Label(stats_frame, text="Scanned: 0")
         self.scanned_label.grid(row=0, column=0, padx=(0, 10))
         self.kept_label = ttk.Label(stats_frame, text="Kept: 0")
@@ -864,13 +855,18 @@ class YouTubeFinderTkinter:
 
             # Save results
             if all_results and not self.stop_search:
+                columns = self.tree["columns"]
                 results_df = pd.DataFrame(all_results)
+                # You may need to map from internal field names to display names here!
+                # For now, use the original structure, or adapt as needed.
+
                 today = datetime.now().strftime('%Y-%m-%d')
                 results_file = f'export/results_{today}.csv'
 
                 self.csv_handler.save_results(results_df, results_file)
                 self.csv_handler.update_history([r['video_id'] for r in all_results])
 
+                self.log_run(self.quota_used, len(config['keywords']), len(all_results))
                 # Update UI with results
                 self.results_df = results_df
                 self.root.after(0, self.update_results_table)
@@ -880,25 +876,24 @@ class YouTubeFinderTkinter:
                     lambda: messagebox.showinfo(
                         'Search Complete',
                         f'Found {len(all_results)} videos!\nResults saved to: {results_file}'))
+                # Update daily quota label
+                quota_today, searches_today = self.get_today_stats()
+                self.root.after(0, lambda: self.daily_quota_label.config(
+                    text=f"Today's quota used: {quota_today} (searches: {searches_today})"))
             elif not self.stop_search:
                 self.root.after(
                     0,
                     lambda: messagebox.showinfo('Search Complete',
                                                 'No results found matching criteria'))
-
         except Exception as e:
             self.root.after(
                 0,
                 lambda: messagebox.showerror('Search Error',
                                             f'An error occurred during search: {str(e)}'))
-
         finally:
-            # Re-enable start button
             self.root.after(0, lambda: self.start_button.config(state='normal'))
             self.root.after(0, lambda: self.stop_button.config(state='disabled'))
             self.root.after(0, lambda: self.progress_var.set(100))
-
-            # Reset date filters
             self.root.after(0, lambda: self.filter_min_date_var.set(''))
             self.root.after(0, lambda: self.filter_max_date_var.set(''))
 
@@ -975,6 +970,43 @@ class YouTubeFinderTkinter:
         channel_quota = video_calls * CHANNEL_COST
 
         return search_quota + video_quota + channel_quota
+    
+    def log_run(self, quota_used, keywords_count, results_count):
+        """Log the run details to logs/runs.csv"""
+        try:
+            log_file = 'logs/runs.csv'
+            log_data = {
+                'run_timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'quota_used': quota_used,
+                'keywords_count': keywords_count,
+                'results_count': results_count
+            }
+            if os.path.exists(log_file):
+                log_df = pd.read_csv(log_file)
+                log_df = pd.concat([log_df, pd.DataFrame([log_data])], ignore_index=True)
+            else:
+                log_df = pd.DataFrame([log_data])
+            log_df.to_csv(log_file, index=False)
+        except Exception as e:
+            print(f"Warning: Failed to log run details: {str(e)}")
+
+    def get_today_stats(self):
+        """Return total quota used and searches for today from logs/runs.csv"""
+        try:
+            log_file = 'logs/runs.csv'
+            today = datetime.now().strftime('%Y-%m-%d')
+            if os.path.exists(log_file):
+                log_df = pd.read_csv(log_file)
+                log_df['run_timestamp'] = pd.to_datetime(log_df['run_timestamp'])
+                today_df = log_df[log_df['run_timestamp'].dt.strftime('%Y-%m-%d') == today]
+                quota_used = today_df['quota_used'].sum()
+                searches = len(today_df)
+                return int(quota_used), searches
+            else:
+                return 0, 0
+        except Exception as e:
+            print(f"Warning: Failed to read quota stats: {str(e)}")
+            return 0, 0
 
     def stop_search_func(self):
         self.stop_search = True

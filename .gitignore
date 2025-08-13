@@ -16,6 +16,7 @@ dist/
 pip-wheel-metadata/
 .Pipfile.lock
 poetry.lock
+apikey.json
 
 # ── Virtual environments ──
 venv/
