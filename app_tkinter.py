@@ -1042,20 +1042,35 @@ class YouTubeFinderTkinter:
                     break
 
     def export_results(self):
-        # Get column order from the Treeview
-        columns = self.tree["columns"]
-        
+        # Get column order from the Treeview and insert "Link" column after "Title"
+        columns = list(self.tree["columns"])
+        if "Link" not in columns:
+            title_idx = columns.index("Title")
+            columns.insert(title_idx + 1, "Link")
+
         # Get visible/filtered rows in order
         rows = []
         for item in self.tree.get_children():
-            row = self.tree.item(item)["values"]
+            row = list(self.tree.item(item)["values"])
+            # Match the title in results_df to get the video URL
+            title = row[0]
+            video_url = ""
+            # Use a robust match (title and channel) to avoid issues with duplicates
+            df_match = self.results_df[
+                (self.results_df["title"].str.startswith(title)) &
+                (self.results_df["channel_title"] == row[7])
+            ]
+            if not df_match.empty:
+                video_url = df_match.iloc[0].get("video_url", "")
+            # Insert the video URL after the title
+            row.insert(1, video_url)
             rows.append(row)
-        
+
         if not rows:
             messagebox.showwarning('No Data', 'No results to export!')
             return
 
-        # Create DataFrame from table data
+        # Create DataFrame from table data with the new columns order
         results_df = pd.DataFrame(rows, columns=columns)
 
         # Ask for filename
