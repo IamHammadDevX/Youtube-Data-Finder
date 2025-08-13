@@ -1003,10 +1003,23 @@ class YouTubeFinderTkinter:
                     break
 
     def export_results(self):
-        if self.results_df.empty:
+        # Get column order from the Treeview
+        columns = self.tree["columns"]
+        
+        # Get visible/filtered rows in order
+        rows = []
+        for item in self.tree.get_children():
+            row = self.tree.item(item)["values"]
+            rows.append(row)
+        
+        if not rows:
             messagebox.showwarning('No Data', 'No results to export!')
             return
-        
+
+        # Create DataFrame from table data
+        results_df = pd.DataFrame(rows, columns=columns)
+
+        # Ask for filename
         filename = filedialog.asksaveasfilename(
             defaultextension=".csv",
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
@@ -1015,7 +1028,7 @@ class YouTubeFinderTkinter:
         
         if filename:
             try:
-                self.csv_handler.save_results(self.results_df, filename)
+                results_df.to_csv(filename, index=False, encoding='utf-8-sig')
                 messagebox.showinfo('Export Complete', f'Results exported to: {filename}')
             except Exception as e:
                 messagebox.showerror('Export Error', f'Failed to export results: {str(e)}')
